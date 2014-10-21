@@ -15,21 +15,11 @@
 ;; x, y, width, and height in terms of pixels
 ;; [d]
 ;; Delta. dxi, dxp, etc.
-;; [reg]
-;; Short for region. Rhymes with "seq".
 ;; [vf]
 ;; The "visual field"
 
-;; TODO:
-;; - Need an animation for snapping. For animations, I'll want to switch away
-;;   from drawing on mousemove, and instead simply set the destination on
-;;   mousemove (and let a separate renderer be in charge of animating toward
-;;   that destination). Consider core.async.
-
 (defn log [& args]
   (.log js/console (reduce str "" args)))
-
-(def allow-dots-outside-vf? false)
 
 (def worldwp 500)
 (def worldhp 500)
