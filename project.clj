@@ -3,7 +3,7 @@
   :url "http://mrcslws.com/saccade"
   :source-paths ["src/clj" "src/cljs"]
   :dependencies [[org.clojure/clojure "1.6.0"]
-                 [org.clojure/clojurescript "0.0-2342"]
+                 [org.clojure/clojurescript "0.0-2371"]
                  [ring "1.2.2"]
                  [compojure "1.1.8"]
                  [enlive "1.1.5"]
