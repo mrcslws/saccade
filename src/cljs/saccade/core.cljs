@@ -8,7 +8,7 @@
             [goog.events :as events]
             [goog.net.XhrIo :as XhrIo])
   (:require-macros [saccade.macros :refer [set-prefixed!]]
-                   [cljs.core.async.macros :refer [go]]))
+                   [cljs.core.async.macros :refer [go go-loop]]))
 
 ;; Naming conventions:
 ;; x and y use the upper-left corner as the origin
@@ -241,37 +241,36 @@
 
 (defn handle-canvas-panning []
   (let [[_ downs] (listen canvas "mousedown")]
-    (go (while true
-          (set-prefixed! (.-cursor (.-style canvas)) "grab")
-          (let [downevt (<! downs)]
-            (when (= (.-button downevt) events/BrowserEvent.MouseButton.LEFT)
-              (let [[kmousemove moves] (listen js/window "mousemove")
-                    [kmouseup ups] (listen js/window "mouseup")]
-                (set-prefixed! (.-cursor (.-style canvas)) "grabbing")
-                (while (not (= ups
-                               (let [[evt port] (alts! [moves ups])
-                                     dxp (- (.-clientX evt)
-                                            (.-clientX downevt))
-                                     dyp (- (.-clientY evt)
-                                            (.-clientY downevt))
-                                     newxi (+ vfxi (dxp->dxi dxp))
-                                     newyi (+ vfyi (dyp->dyi dyp))]
-                                 (cond
-                                  (= port moves)
-                                  (do
-                                    (consider-vf newxi newyi)
-                                    (paint-partialdrag dxp dyp))
+    (go-loop []
+      (set-prefixed! (.-cursor (.-style canvas)) "grab")
+      (let [downevt (<! downs)]
+        (when (= (.-button downevt) events/BrowserEvent.MouseButton.LEFT)
+          (let [[kmousemove moves] (listen js/window "mousemove")
+                [kmouseup ups] (listen js/window "mouseup")]
+            (set-prefixed! (.-cursor (.-style canvas)) "grabbing")
+            (while (not (= ups
+                           (let [[evt port] (alts! [moves ups])
+                                 dxp (- (.-clientX evt) (.-clientX downevt))
+                                 dyp (- (.-clientY evt) (.-clientY downevt))
+                                 newxi (+ vfxi (dxp->dxi dxp))
+                                 newyi (+ vfyi (dyp->dyi dyp))]
+                             (cond
+                              (= port moves)
+                              (do
+                                (consider-vf newxi newyi)
+                                (paint-partialdrag dxp dyp))
 
-                                  (= port ups)
-                                  (commit-vf newxi newyi))
-                                 port))))
-                (events/unlistenByKey kmousemove)
-                (events/unlistenByKey kmouseup)
+                              (= port ups)
+                              (commit-vf newxi newyi))
+                             port))))
+            (events/unlistenByKey kmousemove)
+            (events/unlistenByKey kmouseup)
 
-                ;; In obscure cases (e.g. javascript breakpoints)
-                ;; there are stale mousedowns sitting in the queue.
-                (while (let [[_ port] (alts! [downs] :default :drained)]
-                         (not (= :default port)))))))))))
+            ;; In obscure cases (e.g. javascript breakpoints)
+            ;; there are stale mousedowns sitting in the queue.
+            (while (let [[_ port] (alts! [downs] :default :drained)]
+                     (not (= :default port)))))))
+      (recur))))
 
 (defn add-everything-to-document []
   (dom/appendChild js/document.body canvas)
