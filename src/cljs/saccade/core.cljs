@@ -128,7 +128,7 @@
     (XhrIo/send path (fn [e]
                        (let [response (-> e .-target .getResponseText)]
                          (put! port
-                               (when (not (empty? (.trim response)))
+                               (when-not (empty? (.trim response))
                                  (log "[" path " --> Client] " response)
                                  (transit/read (transit/reader :json)
                                                response)))))
@@ -172,7 +172,7 @@
             response (<! port)
             sp-columns (into (sorted-set) (response "sp_output"))
             data (response "sensor_value")]
-        (when (not (contains? sensor-sdrs data))
+        (when-not (contains? sensor-sdrs data)
           (let [sdrlog-el (dom/createElement "div")]
             (dom/append js/document.body
                         (dom/createDom "div" nil
@@ -182,8 +182,8 @@
                   (assoc-in sensor-sdrs [data]
                             {:sdrs []
                              :container-element sdrlog-el}))))
-        (when (not (= sp-columns
-                      (-> sensor-sdrs (get-in [data :sdrs]) last :sdr)))
+        (when-not (= sp-columns
+                 (-> sensor-sdrs (get-in [data :sdrs]) last :sdr))
           (let [count-el (dom/createDom "div" nil 0)]
             (dom/append (get-in sensor-sdrs [data :container-element])
                         (create-styled-dom "div" {"width" "100px"
