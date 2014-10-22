@@ -234,30 +234,37 @@
     [eventkey port]))
 
 (defn handle-canvas-panning []
-  (let [[_ downs] (listen canvas "mousedown")]
-    (go (while true
+  (go (while true
+        (let [[kmousedown downs] (listen canvas "mousedown")]
           (set-prefixed! (.-cursor (.-style canvas)) "grab")
-          (let [downevt (<! downs)
-                [kmousemove moves] (listen canvas "mousemove")
-                [kmouseup ups] (listen canvas "mouseup")]
-            (set-prefixed! (.-cursor (.-style canvas)) "grabbing")
-            (while (not (= ups
-                           (let [[evt port] (alts! [moves ups])
-                                 dxp (- (.-offsetX evt) (.-offsetX downevt))
-                                 dyp (- (.-offsetY evt) (.-offsetY downevt))
-                                 newxi (+ vfxi (dxp->dxi dxp))
-                                 newyi (+ vfyi (dyp->dyi dyp))]
-                             (cond
-                              (= port moves)
-                              (do
-                                (consider-vf newxi newyi)
-                                (paint-partialdrag dxp dyp))
+          (let [downevt (<! downs)]
+            (when (= (.-button downevt) events/BrowserEvent.MouseButton.LEFT)
+              (let [[kmousemove moves] (listen js/window "mousemove")
+                    [kmouseup ups] (listen js/window "mouseup")]
+                (set-prefixed! (.-cursor (.-style canvas)) "grabbing")
+                (while (not (= ups
+                               (let [[evt port] (alts! [moves ups])
+                                     dxp (- (.-clientX evt) (.-clientX downevt))
+                                     dyp (- (.-clientY evt) (.-clientY downevt))
+                                     newxi (+ vfxi (dxp->dxi dxp))
+                                     newyi (+ vfyi (dyp->dyi dyp))]
+                                 (cond
+                                  (= port moves)
+                                  (do
+                                    (consider-vf newxi newyi)
+                                    (paint-partialdrag dxp dyp))
 
-                              (= port ups)
-                              (commit-vf newxi newyi))
-                             port))))
-            (events/unlistenByKey kmousemove)
-            (events/unlistenByKey kmouseup))))))
+                                  (= port ups)
+                                  (commit-vf newxi newyi))
+                                 port))))
+                (events/unlistenByKey kmousemove)
+                (events/unlistenByKey kmouseup)
+
+                ;; In obscure cases (e.g. javascript breakpoints)
+                ;; there are stale mousedowns sitting in the queue,
+                ;; not paired with mouseups. Just start fresh after
+                ;; every mousedown.
+                (events/unlistenByKey kmousedown))))))))
 
 (defn add-everything-to-document []
   (dom/appendChild js/document.body canvas)
