@@ -244,8 +244,10 @@
                 (set-prefixed! (.-cursor (.-style canvas)) "grabbing")
                 (while (not (= ups
                                (let [[evt port] (alts! [moves ups])
-                                     dxp (- (.-clientX evt) (.-clientX downevt))
-                                     dyp (- (.-clientY evt) (.-clientY downevt))
+                                     dxp (- (.-clientX evt)
+                                            (.-clientX downevt))
+                                     dyp (- (.-clientY evt)
+                                            (.-clientY downevt))
                                      newxi (+ vfxi (dxp->dxi dxp))
                                      newyi (+ vfyi (dyp->dyi dyp))]
                                  (cond
