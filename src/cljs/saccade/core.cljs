@@ -5,7 +5,8 @@
             [clojure.string :as string]
             [cljs.core.async :refer [<! put! alts! chan]]
             [goog.dom :as dom]
-            [goog.events :as events])
+            [goog.events :as events]
+            [goog.net.XhrIo :as XhrIo])
   (:require-macros [saccade.macros :refer [set-prefixed!]]
                    [cljs.core.async.macros :refer [go]]))
 
@@ -120,24 +121,27 @@
          (subvec (nth the-world xi) vfyi (+ vfyi vfhi)))))
 
 (defn do-xhr [command-path message]
-  (let [xhr (js/XMLHttpRequest.)
-        w (transit/writer :json-verbose)
-        r (transit/reader :json)
+  (let [port (chan)
         path (str "http://localhost:8000" command-path)
-        message (transit/write w message)]
+        message (transit/write (transit/writer :json-verbose) message)]
     (log "[Client --> " path "] " message)
-    (.open xhr "post" path false)
-    (.send xhr message)
-    (let [response (.-responseText xhr)]
-      (when (not (empty? (.trim response)))
-        (log "[" path " --> Client] " response)
-        (transit/read r response)))))
+    (XhrIo/send path (fn [e]
+                       (let [response (-> e .-target .getResponseText)]
+                         (put! port
+                               (when (not (empty? (.trim response)))
+                                 (log "[" path " --> Client] " response)
+                                 (transit/read (transit/reader :json)
+                                               response)))))
+                "POST" message)
+    port))
 
 (def server-token nil)
 
 (defn set-initial-sensor-value []
-  (set! server-token (do-xhr "/set-initial-sensor-value" (sensory-data)))
-  (log "Server assigned us token " server-token))
+  (go
+    (set! server-token (<! (do-xhr "/set-initial-sensor-value"
+                                   (sensory-data))))
+    (log "Server assigned us token " server-token)))
 
 (defn create-snapshot-element []
   (let [sscnvs (.createElement js/document "canvas")
@@ -161,40 +165,42 @@
 (def sensor-sdrs {})
 
 (defn add-action-and-result [dxi dyi]
-  (let [response (do-xhr "/add-action-and-result"
+  (go (let [port (do-xhr "/add-action-and-result"
                          {"context_id" server-token
                           "motor_value" [dxi dyi]
                           "new_sensor_value" (sensory-data)})
-        sp-columns (into (sorted-set) (response "sp_output"))
-        data (response "sensor_value")]
-    (when (not (contains? sensor-sdrs data))
-      (let [sdrlog-el (dom/createElement "div")]
-        (dom/append js/document.body
-                    (dom/createDom "div" nil
-                                   (create-snapshot-element)
-                                   sdrlog-el))
-        (set! sensor-sdrs
-              (assoc-in sensor-sdrs [data]
-                        {:sdrs []
-                         :container-element sdrlog-el}))))
-    (when (not (= sp-columns (-> sensor-sdrs (get-in [data :sdrs]) last :sdr)))
-      (let [count-el (dom/createDom "div" nil 0)]
-        (dom/append (get-in sensor-sdrs [data :container-element])
-                    (create-styled-dom "div" {"width" "100px"
-                                              "font-family" "Consolas"}
-                                       nil (string/join " " sp-columns))
-                    count-el)
-        (set! sensor-sdrs
-              (update-in sensor-sdrs [data :sdrs]
-                         conj {:sdr sp-columns
-                               :statistics {:count 0
-                                            :count-element count-el}}))))
-    (let [idx (-> sensor-sdrs (get-in [data :sdrs]) count dec)]
-      (set! sensor-sdrs
-            (update-in sensor-sdrs [data :sdrs idx :statistics :count] inc))
-      (let [statistics (get-in sensor-sdrs [data :sdrs idx :statistics])]
-        (set! (.-innerHTML (:count-element statistics))
-              (:count statistics))))))
+            response (<! port)
+            sp-columns (into (sorted-set) (response "sp_output"))
+            data (response "sensor_value")]
+        (when (not (contains? sensor-sdrs data))
+          (let [sdrlog-el (dom/createElement "div")]
+            (dom/append js/document.body
+                        (dom/createDom "div" nil
+                                       (create-snapshot-element)
+                                       sdrlog-el))
+            (set! sensor-sdrs
+                  (assoc-in sensor-sdrs [data]
+                            {:sdrs []
+                             :container-element sdrlog-el}))))
+        (when (not (= sp-columns
+                      (-> sensor-sdrs (get-in [data :sdrs]) last :sdr)))
+          (let [count-el (dom/createDom "div" nil 0)]
+            (dom/append (get-in sensor-sdrs [data :container-element])
+                        (create-styled-dom "div" {"width" "100px"
+                                                  "font-family" "Consolas"}
+                                           nil (string/join " " sp-columns))
+                        count-el)
+            (set! sensor-sdrs
+                  (update-in sensor-sdrs [data :sdrs]
+                             conj {:sdr sp-columns
+                                   :statistics {:count 0
+                                                :count-element count-el}}))))
+        (let [idx (-> sensor-sdrs (get-in [data :sdrs]) count dec)]
+          (set! sensor-sdrs
+                (update-in sensor-sdrs [data :sdrs idx :statistics :count] inc))
+          (let [statistics (get-in sensor-sdrs [data :sdrs idx :statistics])]
+            (set! (.-innerHTML (:count-element statistics))
+                  (:count statistics)))))))
 
 (defn commit-vf [xi yi]
   (when (and (<= 0 xi) (< xi worldwi) (<= 0 yi) (< yi worldhi))
