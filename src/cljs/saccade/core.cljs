@@ -3,9 +3,11 @@
             [cognitect.transit :as transit]
             [saccade.dom :refer [create-styled-dom]]
             [clojure.string :as string]
+            [cljs.core.async :refer [<! put! alts! chan]]
             [goog.dom :as dom]
             [goog.events :as events])
-  (:require-macros [saccade.macros :refer [set-prefixed!]]))
+  (:require-macros [saccade.macros :refer [set-prefixed!]]
+                   [cljs.core.async.macros :refer [go]]))
 
 ;; Naming conventions:
 ;; x and y use the upper-left corner as the origin
@@ -195,7 +197,6 @@
               (:count statistics))))))
 
 (defn commit-vf [xi yi]
-  (set-prefixed! (.-cursor (.-style canvas)) "grab")
   (when (and (<= 0 xi) (< xi worldwi) (<= 0 yi) (< yi worldhi))
     (let [dxi (- xi vfxi)
           dyi (- yi vfyi)]
@@ -210,6 +211,8 @@
   (paint-vf-rectangle "rgba(0,0,255,0.25)" xp yp))
 
 (defn consider-vf [xi yi]
+  ;; TODO: During a drag, cache the values for each spot on the grid as it's
+  ;; retrieved.
   )
 
 (defn round-halfway-down [n interval]
@@ -225,47 +228,40 @@
     (paint-dream-vf (+ (xi->xp vfxi) snappydxp)
                     (+ (yi->yp vfyi) snappydyp))))
 
-(def dragstartxp nil)
-(def dragstartyp nil)
-(def dxi nil)
-(def dyi nil)
+(defn listen [el type]
+  (let [port (chan)
+        eventkey (events/listen el type #(put! port %1))]
+    [eventkey port]))
 
-(defn dragging? []
-  (number? dragstartxp))
+(defn handle-canvas-panning []
+  (let [[_ downs] (listen canvas "mousedown")]
+    (go (while true
+          (set-prefixed! (.-cursor (.-style canvas)) "grab")
+          (let [downevt (<! downs)
+                [kmousemove moves] (listen canvas "mousemove")
+                [kmouseup ups] (listen canvas "mouseup")]
+            (set-prefixed! (.-cursor (.-style canvas)) "grabbing")
+            (while (not (= ups
+                           (let [[evt port] (alts! [moves ups])
+                                 dxp (- (.-offsetX evt) (.-offsetX downevt))
+                                 dyp (- (.-offsetY evt) (.-offsetY downevt))
+                                 newxi (+ vfxi (dxp->dxi dxp))
+                                 newyi (+ vfyi (dyp->dyi dyp))]
+                             (cond
+                              (= port moves)
+                              (do
+                                (consider-vf newxi newyi)
+                                (paint-partialdrag dxp dyp))
 
-(defn on-canvas-mousedown [evt]
-  (set-prefixed! (.-cursor (.-style canvas)) "grabbing")
-  (set! dragstartxp (.-offsetX evt))
-  (set! dragstartyp (.-offsetY evt))
-  (set! dxi 0)
-  (set! dyi 0))
-
-(defn on-canvas-mousemove [evt]
-  (when (dragging?)
-    (let [dxp (- (.-offsetX evt) dragstartxp)
-          dyp (- (.-offsetY evt) dragstartyp)
-          newdxi (dxp->dxi dxp)
-          newdyi (dyp->dyi dyp)]
-      (if (not (and (= dxi newdxi) (= dyi newdyi)))
-        (do
-          (set! dxi newdxi)
-          (set! dyi newdyi)
-          (consider-vf (+ vfxi newdxi) (+ vfyi newdyi)))
-        (paint-partialdrag dxp dyp)))))
-
-(defn on-canvas-mouseup [evt]
-  (commit-vf (+ vfxi dxi) (+ vfyi dyi))
-  (set! dragstartxp nil)
-  (set! dragstartyp nil)
-  (set! dxi nil)
-  (set! dyi nil))
+                              (= port ups)
+                              (commit-vf newxi newyi))
+                             port))))
+            (events/unlistenByKey kmousemove)
+            (events/unlistenByKey kmouseup))))))
 
 (defn add-everything-to-document []
   (dom/appendChild js/document.body canvas)
-  (doseq [[k v] {"mousedown" #(on-canvas-mousedown %1)
-                 "mousemove" #(on-canvas-mousemove %1)
-                 "mouseup" #(on-canvas-mouseup %1)}]
-    (events/listen canvas k v))
+  (handle-canvas-panning)
   (commit-vf 3 3))
 
 (set! (.-onload js/window)
