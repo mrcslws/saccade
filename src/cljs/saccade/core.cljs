@@ -234,8 +234,8 @@
     [eventkey port]))
 
 (defn handle-canvas-panning []
-  (go (while true
-        (let [[kmousedown downs] (listen canvas "mousedown")]
+  (let [[_ downs] (listen canvas "mousedown")]
+    (go (while true
           (set-prefixed! (.-cursor (.-style canvas)) "grab")
           (let [downevt (<! downs)]
             (when (= (.-button downevt) events/BrowserEvent.MouseButton.LEFT)
@@ -261,10 +261,9 @@
                 (events/unlistenByKey kmouseup)
 
                 ;; In obscure cases (e.g. javascript breakpoints)
-                ;; there are stale mousedowns sitting in the queue,
-                ;; not paired with mouseups. Just start fresh after
-                ;; every mousedown.
-                (events/unlistenByKey kmousedown))))))))
+                ;; there are stale mousedowns sitting in the queue.
+                (while (let [[_ port] (alts! [downs] :default :drained)]
+                         (not (= :default port)))))))))))
 
 (defn add-everything-to-document []
   (dom/appendChild js/document.body canvas)
