@@ -36,33 +36,17 @@
 (defn floor [num]
   (.floor js/Math num))
 
-(defn xi->xp [xi]
-  (* (/ xi worldwi) worldwp))
+(defn abs [num]
+  (.abs js/Math num))
 
-(defn yi->yp [yi]
-  (* (/ yi worldhi) worldhp))
-
-(defn xp->xifraction [xp]
-  (* (/ xp worldwp) worldwi))
-
-(defn yp->yifraction [yp]
-  (* (/ yp worldhp) worldhi))
-
-(defn xp->xi [xp]
-  (floor (xp->xifraction xp)))
-
-(defn yp->yi [yp]
-  (floor (yp->yifraction yp)))
-
-(defn dxp->dxi [dxp]
-  (let [magnitude (.abs js/Math dxp)
-        direction (if (pos? dxp) 1 -1)]
-    (* direction (xp->xi magnitude))))
-
-(defn dyp->dyi [dyp]
-  (let [magnitude (.abs js/Math dyp)
-        direction (if (pos? dyp) 1 -1)]
-    (* direction (yp->yi magnitude))))
+(defn xi->xp [xi] (-> xi (/ worldwi) (* worldwp)))
+(defn yi->yp [yi] (-> yi (/ worldhi) (* worldhp)))
+(defn xp->xifraction [xp] (-> xp (/ worldwp) (* worldwi)))
+(defn yp->yifraction [yp] (-> yp (/ worldhp) (* worldhi)))
+(defn xp->xi [xp] (-> xp xp->xifraction floor))
+(defn yp->yi [yp] (-> yp yp->yifraction floor))
+(defn dxp->dxi [dxp] (-> dxp abs xp->xi (cond-> (neg? dxp) (* -1))))
+(defn dyp->dyi [dyp] (-> dyp abs yp->yi (cond-> (neg? dyp) (* -1))))
 
 (def the-world nil)
 (set! the-world [[0 0 0 0 0 0 0 0 0]
