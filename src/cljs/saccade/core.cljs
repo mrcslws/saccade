@@ -28,10 +28,11 @@
 (def worldhp 500)
 (def worldwi 9)
 (def worldhi 9)
-(def vfxi nil)
-(def vfyi nil)
 (def vfwi 3)
 (def vfhi 3)
+
+(def vfxi (atom))
+(def vfyi (atom))
 
 (defn floor [num]
   (.floor js/Math num))
@@ -48,16 +49,15 @@
 (defn dxp->dxi [dxp] (-> dxp abs xp->xi (cond-> (neg? dxp) (* -1))))
 (defn dyp->dyi [dyp] (-> dyp abs yp->yi (cond-> (neg? dyp) (* -1))))
 
-(def the-world nil)
-(set! the-world [[0 0 0 0 0 0 0 0 0]
-                 [0 0 0 0 0 0 0 0 0]
-                 [0 0 0 0 0 0 0 0 0]
-                 [0 0 0 0 0 0 0 0 0]
-                 [0 0 0 0 1 0 0 0 0]
-                 [0 0 0 0 0 1 0 0 0]
-                 [0 0 0 0 0 0 0 0 0]
-                 [0 0 0 0 0 0 0 0 0]
-                 [0 0 0 0 0 0 0 0 0]])
+(def the-world (atom [[0 0 0 0 0 0 0 0 0]
+                      [0 0 0 0 0 0 0 0 0]
+                      [0 0 0 0 0 0 0 0 0]
+                      [0 0 0 0 0 0 0 0 0]
+                      [0 0 0 0 1 0 0 0 0]
+                      [0 0 0 0 0 1 0 0 0]
+                      [0 0 0 0 0 0 0 0 0]
+                      [0 0 0 0 0 0 0 0 0]
+                      [0 0 0 0 0 0 0 0 0]]))
 
 (def canvas (dom/createDom "canvas"
                            (clj->js {"width" worldwp
@@ -71,7 +71,7 @@
                (xi->xp vfwi) (yi->yp vfhi)))
 
 (defn paint-vf []
-  (paint-vf-rectangle "blue" (xi->xp vfxi) (yi->yp vfyi)))
+  (paint-vf-rectangle "blue" (xi->xp @vfxi) (yi->yp @vfyi)))
 
 (defn paint-grid [wi hi wp hp dots ctx]
   (set! (.-fillStyle ctx) "black")
@@ -97,12 +97,12 @@
 
 (defn paint []
   (clear-canvas)
-  (paint-grid worldwi worldhi worldwp worldhp the-world ctx)
+  (paint-grid worldwi worldhi worldwp worldhp @the-world ctx)
   (paint-vf))
 
 (defn sensory-data []
-  (vec (for [xi (range vfxi (+ vfxi vfwi))]
-         (subvec (nth the-world xi) vfyi (+ vfyi vfhi)))))
+  (vec (for [xi (range @vfxi (+ @vfxi vfwi))]
+         (subvec (nth @the-world xi) @vfyi (+ @vfyi vfhi)))))
 
 (defn do-xhr [command-path message]
   (let [port (chan)
@@ -119,13 +119,14 @@
                 "POST" message)
     port))
 
-(def server-token nil)
+(def server-token (atom))
 
 (defn set-initial-sensor-value []
   (go
-    (set! server-token (<! (do-xhr "/set-initial-sensor-value"
-                                   (sensory-data))))
-    (log "Server assigned us token " server-token)))
+    (let [token (<! (do-xhr "/set-initial-sensor-value"
+                            (sensory-data)))]
+      (reset! server-token token)
+      (log "Server assigned us token " token))))
 
 (defn create-snapshot-element []
   (let [sscnvs (.createElement js/document "canvas")
@@ -145,54 +146,52 @@
 ;;                         :statistics {:count count1
 ;;                                      :count-element el}}]
 ;;                 :container-element el
-;;                }}
-(def sensor-sdrs {})
+;;                 }}
+(def sensor-sdrs (atom {}))
 
 (defn add-action-and-result [dxi dyi]
   (go (let [port (do-xhr "/add-action-and-result"
-                         {"context_id" server-token
+                         {"context_id" @server-token
                           "motor_value" [dxi dyi]
                           "new_sensor_value" (sensory-data)})
             response (<! port)
             sp-columns (into (sorted-set) (response "sp_output"))
             data (response "sensor_value")]
-        (when-not (contains? sensor-sdrs data)
+        (when-not (contains? @sensor-sdrs data)
           (let [sdrlog-el (dom/createElement "div")]
             (dom/append js/document.body
                         (dom/createDom "div" nil
                                        (create-snapshot-element)
                                        sdrlog-el))
-            (set! sensor-sdrs
-                  (assoc-in sensor-sdrs [data]
-                            {:sdrs []
-                             :container-element sdrlog-el}))))
+            (swap! sensor-sdrs assoc-in [data]
+                   {:sdrs []
+                    :container-element sdrlog-el})))
         (when-not (= sp-columns
-                 (-> sensor-sdrs (get-in [data :sdrs]) last :sdr))
+                 (-> @sensor-sdrs (get-in [data :sdrs]) last :sdr))
           (let [count-el (dom/createDom "div" nil 0)]
-            (dom/append (get-in sensor-sdrs [data :container-element])
+            (dom/append (get-in @sensor-sdrs [data :container-element])
                         (create-styled-dom "div" {"width" "100px"
                                                   "font-family" "Consolas"}
                                            nil (string/join " " sp-columns))
                         count-el)
-            (set! sensor-sdrs
-                  (update-in sensor-sdrs [data :sdrs]
-                             conj {:sdr sp-columns
-                                   :statistics {:count 0
-                                                :count-element count-el}}))))
-        (let [idx (-> sensor-sdrs (get-in [data :sdrs]) count dec)]
-          (set! sensor-sdrs
-                (update-in sensor-sdrs [data :sdrs idx :statistics :count] inc))
-          (let [statistics (get-in sensor-sdrs [data :sdrs idx :statistics])]
+            (swap! sensor-sdrs update-in [data :sdrs]
+                   conj {:sdr sp-columns
+                         :statistics {:count 0
+                                      :count-element count-el}})))
+        (let [idx (-> @sensor-sdrs (get-in [data :sdrs]) count dec)]
+          (swap! sensor-sdrs update-in [data :sdrs idx :statistics :count]
+                 inc)
+          (let [statistics (get-in @sensor-sdrs [data :sdrs idx :statistics])]
             (set! (.-innerHTML (:count-element statistics))
                   (:count statistics)))))))
 
 (defn commit-vf [xi yi]
   (when (and (<= 0 xi) (< xi worldwi) (<= 0 yi) (< yi worldhi))
-    (let [dxi (- xi vfxi)
-          dyi (- yi vfyi)]
-      (set! vfxi xi)
-      (set! vfyi yi)
-      (if (nil? server-token)
+    (let [dxi (- xi @vfxi)
+          dyi (- yi @vfyi)]
+      (reset! vfxi xi)
+      (reset! vfyi yi)
+      (if (nil? @server-token)
         (set-initial-sensor-value)
         (add-action-and-result dxi dyi))))
   (paint))
@@ -215,8 +214,8 @@
   (let [snappydxp (round-halfway-down dxp (xi->xp 1))
         snappydyp (round-halfway-down dyp (yi->yp 1))]
     (paint)
-    (paint-dream-vf (+ (xi->xp vfxi) snappydxp)
-                    (+ (yi->yp vfyi) snappydyp))))
+    (paint-dream-vf (+ (xi->xp @vfxi) snappydxp)
+                    (+ (yi->yp @vfyi) snappydyp))))
 
 (defn listen [el type]
   (let [port (chan)
@@ -236,8 +235,8 @@
                          (let [[evt port] (alts! [moves ups])
                                dxp (- (.-clientX evt) (.-clientX downevt))
                                dyp (- (.-clientY evt) (.-clientY downevt))
-                               newxi (+ vfxi (dxp->dxi dxp))
-                               newyi (+ vfyi (dyp->dyi dyp))]
+                               newxi (+ @vfxi (dxp->dxi dxp))
+                               newyi (+ @vfyi (dyp->dyi dyp))]
                            (cond
                             (= port moves)
                             (do
