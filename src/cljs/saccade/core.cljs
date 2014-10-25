@@ -232,28 +232,28 @@
           (let [[kmousemove moves] (listen js/window "mousemove")
                 [kmouseup ups] (listen js/window "mouseup")]
             (set-prefixed! (.-cursor (.-style canvas)) "grabbing")
-            (while (not (= ups
-                           (let [[evt port] (alts! [moves ups])
-                                 dxp (- (.-clientX evt) (.-clientX downevt))
-                                 dyp (- (.-clientY evt) (.-clientY downevt))
-                                 newxi (+ vfxi (dxp->dxi dxp))
-                                 newyi (+ vfyi (dyp->dyi dyp))]
-                             (cond
-                              (= port moves)
-                              (do
-                                (consider-vf newxi newyi)
-                                (paint-partialdrag dxp dyp))
+            (while (not= ups
+                         (let [[evt port] (alts! [moves ups])
+                               dxp (- (.-clientX evt) (.-clientX downevt))
+                               dyp (- (.-clientY evt) (.-clientY downevt))
+                               newxi (+ vfxi (dxp->dxi dxp))
+                               newyi (+ vfyi (dyp->dyi dyp))]
+                           (cond
+                            (= port moves)
+                            (do
+                              (consider-vf newxi newyi)
+                              (paint-partialdrag dxp dyp))
 
-                              (= port ups)
-                              (commit-vf newxi newyi))
-                             port))))
+                            (= port ups)
+                            (commit-vf newxi newyi))
+                           port)))
             (events/unlistenByKey kmousemove)
             (events/unlistenByKey kmouseup)
 
             ;; In obscure cases (e.g. javascript breakpoints)
             ;; there are stale mousedowns sitting in the queue.
             (while (let [[_ port] (alts! [downs] :default :drained)]
-                     (not (= :default port)))))))
+                     (not= :default port))))))
       (recur))))
 
 (defn add-everything-to-document []
