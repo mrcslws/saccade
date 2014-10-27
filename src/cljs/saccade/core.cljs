@@ -110,7 +110,7 @@
         message (transit/write (transit/writer :json-verbose) message)]
     (log "[Client --> " path "] " message)
     (XhrIo/send path (fn [e]
-                       (let [response (-> e .-target .getResponseText)]
+                       (let [response (.. e -target getResponseText)]
                          (put! port
                                (when-not (empty? (.trim response))
                                  (log "[" path " --> Client] " response)
@@ -225,11 +225,13 @@
 (defn handle-canvas-panning []
   (let [[_ downs] (listen canvas "mousedown")]
     (go-loop []
+      ;; Can't use double dot -- http://dev.clojure.org/jira/browse/ASYNC-49
       (set-prefixed! (.-cursor (.-style canvas)) "grab")
       (let [downevt (<! downs)]
         (when (= (.-button downevt) events/BrowserEvent.MouseButton.LEFT)
           (let [[kmousemove moves] (listen js/window "mousemove")
                 [kmouseup ups] (listen js/window "mouseup")]
+            ;; Again -- http://dev.clojure.org/jira/browse/ASYNC-49
             (set-prefixed! (.-cursor (.-style canvas)) "grabbing")
             (while (not= ups
                          (let [[evt port] (alts! [moves ups])
