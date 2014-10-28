@@ -257,6 +257,7 @@
                      (not= :default port))))))
       (recur))))
 
+
 (defn add-everything-to-document []
   (dom/appendChild js/document.body canvas)
   (handle-canvas-panning)
@@ -265,3 +266,7 @@
 (set! (.-onload js/window)
       (fn []
         (add-everything-to-document)))
+
+(defn main []
+  ;; TODO: (re-)render the page
+  )
