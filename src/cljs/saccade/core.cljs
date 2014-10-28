@@ -1,6 +1,5 @@
 (ns saccade.core
-  (:require [clojure.browser.repl]
-            [cognitect.transit :as transit]
+  (:require [cognitect.transit :as transit]
             [saccade.dom :refer [create-styled-dom]]
             [clojure.string :as string]
             [cljs.core.async :refer [<! put! alts! chan]]
