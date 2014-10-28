@@ -10,6 +10,8 @@
   (:require-macros [saccade.macros :refer [set-prefixed!]]
                    [cljs.core.async.macros :refer [go go-loop]]))
 
+(enable-console-print!)
+
 ;; Naming conventions:
 ;; x and y use the upper-left corner as the origin
 ;; [xi yi wi hi]
@@ -20,9 +22,6 @@
 ;; Delta. dxi, dxp, etc.
 ;; [vf]
 ;; The "visual field"
-
-(defn log [& args]
-  (.log js/console (reduce str "" args)))
 
 (def worldwp 500)
 (def worldhp 500)
@@ -108,12 +107,12 @@
   (let [port (chan)
         path (str "http://localhost:8000" command-path)
         message (transit/write (transit/writer :json-verbose) message)]
-    (log "[Client --> " path "] " message)
+    (println "[Client -->" path "]" message)
     (XhrIo/send path (fn [e]
                        (let [response (.. e -target getResponseText)]
                          (put! port
                                (when-not (empty? (.trim response))
-                                 (log "[" path " --> Client] " response)
+                                 (println "[" path "--> Client]" response)
                                  (transit/read (transit/reader :json)
                                                response)))))
                 "POST" message)
@@ -126,7 +125,7 @@
     (let [token (<! (do-xhr "/set-initial-sensor-value"
                             (sensory-data)))]
       (reset! server-token token)
-      (log "Server assigned us token " token))))
+      (println "Server assigned us token" token))))
 
 (defn create-snapshot-element []
   (let [sscnvs (.createElement js/document "canvas")
