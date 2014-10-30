@@ -33,7 +33,8 @@
             [0 0 0 0 0 0 0 0 0]
             [0 0 0 0 0 0 0 0 0]
             [0 0 0 0 0 0 0 0 0]]
-    :observer {:xi 3 :yi 3 :width 3 :height 3}}))
+    :observer {:xi 3 :yi 3 :width 3 :height 3
+               :server-token nil}}))
 
 (defn world-width [world]
   (count world))
@@ -155,7 +156,7 @@
 
 (defn add-action-and-result [dxi dyi world observer owner]
   (go (let [port (do-xhr "/add-action-and-result"
-                         {"context_id" (om/get-state owner :server-token)
+                         {"context_id" (:server-token @observer)
                           "motor_value" [dxi dyi]
                           "new_sensor_value" (sensory-data world observer)})
             response (<! port)
@@ -222,8 +223,7 @@
       {:grabbed false
        :mousedown (chan)
        :dxp nil
-       :dyp nil
-       :server-token nil})
+       :dyp nil})
 
     om/IWillMount
     (will-mount [_]
@@ -231,7 +231,7 @@
       (go
         (let [token (<! (do-xhr "/set-initial-sensor-value"
                                 (sensory-data world observer)))]
-          (om/set-state! owner :server-token token)
+          (om/update! app [:observer :server-token] token)
           (println "Server assigned us token" token))))
 
     om/IDidMount
