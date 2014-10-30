@@ -9,7 +9,11 @@
   (:require-macros [saccade.macros :refer [set-prefixed!]]
                    [cljs.core.async.macros :refer [go go-loop]]))
 
-(enable-console-print!)
+
+(defn chkcurs [v]
+  (if (om/cursor? v)
+    v
+    (throw (js/Error. (str v " is not a cursor!")))))
 
 ;; Naming conventions:
 ;; x and y use the upper-left corner as the origin
@@ -75,7 +79,7 @@
       ;; Paint the grid.
       (.strokeRect ctx xp yp wpcell hpcell))))
 
-(defn world-view [{:keys [width-px height-px] :as world} owner]
+(defn world-view [world owner]
   (reify
     om/IDidMount
     (did-mount [_]
@@ -87,8 +91,8 @@
 
     om/IRenderState
     (render-state [_ {:keys [style]}]
-      (dom/canvas #js {:ref canvas-ref :width width-px :height height-px
-                       :style (clj->js style)}))))
+      (dom/canvas #js {:ref canvas-ref :width (:width-px world)
+                       :height (:height-px world) :style (clj->js style)}))))
 
 
 ;; ============================================================================
@@ -167,10 +171,9 @@
                        :sensor-value (response "sensor_value")}]
         (put! (om/get-state owner :logchan) log-entry))))
 
-(defn handle-saccader-panning [app owner]
-  (let [{:keys [world observer]} app
-        {:keys [bitmap]} world
-        {obs-width :width obs-height :height} observer]
+(defn handle-saccader-panning [{:keys [world observer]} owner]
+  (chkcurs observer)
+  (let [bitmap (chkcurs (:bitmap world))]
     (go-loop []
       (let [downevt (<! (om/get-state owner :mousedown))]
         (when (= (.-button downevt) 0)
@@ -222,7 +225,9 @@
       (recur))))
 
 (def canvas-ref "saccader-canvas")
-(defn saccader-view [app owner]
+(defn saccader-view [{:keys [world observer]} owner]
+  (chkcurs world)
+  (chkcurs observer)
   (reify
     om/IInitState
     (init-state [_]
@@ -233,48 +238,47 @@
 
     om/IWillMount
     (will-mount [_]
-      (handle-saccader-panning app owner)
+      (handle-saccader-panning {:world world :observer observer} owner)
       (go
         (let [token (<! (do-xhr "/set-initial-sensor-value"
-                                (sensory-data (:world @app)
-                                              (:observer @app))))]
-          (om/update! app [:observer :server-token] token)
+                                (sensory-data @world @observer)))]
+          (om/update! observer :server-token token)
           (println "Server assigned us token" token))))
 
     om/IDidMount
     (did-mount [_]
-      (paint-saccader app owner))
+      (paint-saccader {:world world :observer observer} owner))
 
     om/IDidUpdate
     (did-update [_ prev-props prev-state]
-      (paint-saccader app owner))
+      (paint-saccader {:world world :observer observer} owner))
 
     om/IRenderState
     (render-state [_ {:keys [style grabbed mousedown]}]
-      (let [world (:world app)]
-        (dom/canvas #js {:ref canvas-ref
-                         :width (:width-px world) :height (:height-px world)
-                         :className (if grabbed "grabbed" "grab")
-                         :onMouseDown (fn [e] (.persist e) (put! mousedown e))
-                         :style (clj->js style)
-                         })))))
+      (dom/canvas #js {:ref canvas-ref
+                       :width (:width-px world) :height (:height-px world)
+                       :className (if grabbed "grabbed" "grab")
+                       :onMouseDown (fn [e] (.persist e) (put! mousedown e))
+                       :style (clj->js style)
+                       }))))
 
 ;; ============================================================================
 ;; Component: world-and-observer-view
 
 (defn world-and-observer-view [app owner]
-  (let [{:keys [world]} app
-        {:keys [width-px height-px]} world]
+  (let [world (chkcurs (:world app))
+        observer (chkcurs (:observer app))]
     (reify
       om/IRenderState
       (render-state [_ {:keys [logchan]}]
         (dom/div #js {:position "relative"
-                      :style #js {:width width-px :height height-px}}
+                      :style #js {:width (:width-px world)
+                                  :height (:height-px world)}}
                  (om/build world-view world
                            {:init-state
                             {:style {:position "absolute"
                                      :left 0 :top 0 :zIndex 0}}})
-                 (om/build saccader-view app
+                 (om/build saccader-view {:world world :observer observer}
                            {:init-state
                             {:logchan logchan
                              :style {:position "absolute"
@@ -300,7 +304,7 @@
 ;; TODO - as I write this, every time I save it destroys the log.
 ;; When I find myself being annoyed by this kind of thing, I bet the right
 ;; answer is that I should store it in the app-state (and defonce the app state)
-(defn log-view [app owner]
+(defn log-view [_ owner]
   (reify
     om/IInitState
     (init-state [_]
