@@ -1,9 +1,9 @@
 (ns saccade.core
-  (:require [cognitect.transit :as transit]
-            [saccade.dom :refer [create-styled-dom]]
+  (:require [om.core :as om :include-macros true]
+            [om.dom :as dom :include-macros true]
+            [cognitect.transit :as transit]
             [clojure.string :as string]
             [cljs.core.async :refer [<! put! alts! chan]]
-            [goog.dom :as dom]
             [goog.events :as events]
             [goog.net.XhrIo :as XhrIo])
   (:require-macros [saccade.macros :refer [set-prefixed!]]
@@ -22,15 +22,74 @@
 ;; [vf]
 ;; The "visual field"
 
-(def worldwp 500)
-(def worldhp 500)
-(def worldwi 9)
-(def worldhi 9)
-(def vfwi 3)
-(def vfhi 3)
+(def app-state
+  (atom
+   {:world [[0 0 0 0 0 0 0 0 0]
+            [0 0 0 0 0 0 0 0 0]
+            [0 0 0 0 0 0 0 0 0]
+            [0 0 0 0 0 0 0 0 0]
+            [0 0 0 0 1 0 0 0 0]
+            [0 0 0 0 0 1 0 0 0]
+            [0 0 0 0 0 0 0 0 0]
+            [0 0 0 0 0 0 0 0 0]
+            [0 0 0 0 0 0 0 0 0]]
+    :observer {:xi 3 :yi 3 :width 3 :height 3}}))
 
-(def vfxi (atom))
-(def vfyi (atom))
+(defn world-width [world]
+  (count world))
+
+(defn world-height [world]
+  (count (first world)))
+
+;; ============================================================================
+;; Component: world-view
+
+(defn clear-canvas [ctx]
+  (.save ctx)
+  (.setTransform ctx 1 0 0 1 0 0)
+  (.clearRect ctx 0 0 (.. ctx -canvas -width) (.. ctx -canvas -height))
+  (.restore ctx))
+
+(def canvas-ref "world-canvas")
+
+(defn paint-world [world owner]
+  (let [ctx (.getContext (om/get-node owner canvas-ref) "2d")
+        wi (world-width world)
+        hi (world-height world)
+        wpcell (/ (om/get-state owner :width) wi)
+        hpcell (/ (om/get-state owner :height) hi)]
+    (clear-canvas ctx)
+    (set! (.-fillStyle ctx) "black")
+    (set! (.-strokeStyle ctx) "#2E7DD1")
+    (set! (.-lineWidth ctx) 1)
+    (doseq [xi (range wi)
+            yi (range hi)
+            :let [xp (* xi wpcell)
+                  yp (* yi hpcell)]]
+      ;; Paint the dot, if applicable.
+      (when (= 1 (-> world (nth xi) (nth yi)))
+        (.fillRect ctx xp yp wpcell hpcell))
+      ;; Paint the grid.
+      (.strokeRect ctx xp yp wpcell hpcell))))
+
+(defn world-view [world owner]
+  (reify
+    om/IDidMount
+    (did-mount [_]
+      (paint-world world owner))
+
+    om/IDidUpdate
+    (did-update [_ prev-props prev-state]
+      (paint-world world owner))
+
+    om/IRenderState
+    (render-state [_ {:keys [width height style]}]
+      (dom/canvas #js {:ref canvas-ref :width width :height height
+                       :style (clj->js style)}))))
+
+
+;; ============================================================================
+;; Component: saccader-view
 
 (defn floor [num]
   (.floor js/Math num))
@@ -38,69 +97,22 @@
 (defn abs [num]
   (.abs js/Math num))
 
-(defn xi->xp [xi] (-> xi (/ worldwi) (* worldwp)))
-(defn yi->yp [yi] (-> yi (/ worldhi) (* worldhp)))
-(defn xp->xifraction [xp] (-> xp (/ worldwp) (* worldwi)))
-(defn yp->yifraction [yp] (-> yp (/ worldhp) (* worldhi)))
-(defn xp->xi [xp] (-> xp xp->xifraction floor))
-(defn yp->yi [yp] (-> yp yp->yifraction floor))
-(defn dxp->dxi [dxp] (-> dxp abs xp->xi (cond-> (neg? dxp) (* -1))))
-(defn dyp->dyi [dyp] (-> dyp abs yp->yi (cond-> (neg? dyp) (* -1))))
+(defn round-halfway-down [n interval]
+  (let [magnitude (.abs js/Math n)
+        direction (if (pos? n) 1 -1)
+        remainder (mod magnitude interval)]
+    (* direction (- magnitude (/ remainder 2)))))
 
-(def the-world (atom [[0 0 0 0 0 0 0 0 0]
-                      [0 0 0 0 0 0 0 0 0]
-                      [0 0 0 0 0 0 0 0 0]
-                      [0 0 0 0 0 0 0 0 0]
-                      [0 0 0 0 1 0 0 0 0]
-                      [0 0 0 0 0 1 0 0 0]
-                      [0 0 0 0 0 0 0 0 0]
-                      [0 0 0 0 0 0 0 0 0]
-                      [0 0 0 0 0 0 0 0 0]]))
+(defn cell-width [world owner]
+  (/ (om/get-state owner :width) (world-width world)))
 
-(def canvas (dom/createDom "canvas"
-                           (clj->js {"width" worldwp
-                                     "height" worldhp})))
-(def ctx (.getContext canvas "2d"))
+(defn cell-height [world owner]
+  (/ (om/get-state owner :height) (world-height world)))
 
-(defn paint-vf-rectangle [style xp yp]
-  (set! (.-strokeStyle ctx) style)
-  (set! (.-lineWidth ctx) 5)
-  (.strokeRect ctx xp yp
-               (xi->xp vfwi) (yi->yp vfhi)))
-
-(defn paint-vf []
-  (paint-vf-rectangle "blue" (xi->xp @vfxi) (yi->yp @vfyi)))
-
-(defn paint-grid [wi hi wp hp dots ctx]
-  (set! (.-fillStyle ctx) "black")
-  (set! (.-strokeStyle ctx) "#2E7DD1")
-  (set! (.-lineWidth ctx) 1)
-  (let [wpcell (/ wp wi)
-        hpcell (/ hp hi)]
-    (doseq [xi (range wi)
-            yi (range hi)
-            :let [xp (* xi wpcell)
-                  yp (* yi hpcell)]]
-      ;; Paint the dot, if applicable.
-      (when (= 1 (-> dots (nth xi) (nth yi)))
-        (.fillRect ctx xp yp wpcell hpcell))
-      ;; Paint the grid.
-      (.strokeRect ctx xp yp wpcell hpcell))))
-
-(defn clear-canvas []
-  (.save ctx)
-  (.setTransform ctx 1 0 0 1 0 0)
-  (.clearRect ctx 0 0 worldwp worldhp)
-  (.restore ctx))
-
-(defn paint []
-  (clear-canvas)
-  (paint-grid worldwi worldhi worldwp worldhp @the-world ctx)
-  (paint-vf))
-
-(defn sensory-data []
-  (vec (for [xi (range @vfxi (+ @vfxi vfwi))]
-         (subvec (nth @the-world xi) @vfyi (+ @vfyi vfhi)))))
+(defn listen [el type]
+  (let [port (chan)
+        eventkey (events/listen el type #(put! port %1))]
+    [eventkey port]))
 
 (defn do-xhr [command-path message]
   (let [port (chan)
@@ -117,154 +129,202 @@
                 "POST" message)
     port))
 
-(def server-token (atom))
+(defn paint-saccader [{:keys [world observer]} owner]
+  (let [ctx (.getContext (om/get-node owner canvas-ref) "2d")
+        wpcell (cell-width world owner)
+        hpcell (cell-height world owner)
+        xp (* wpcell (:xi observer))
+        yp (* hpcell (:yi observer))
+        wp (* wpcell (:width observer))
+        hp (* hpcell (:height observer))]
+    (clear-canvas ctx)
+    (set! (.-strokeStyle ctx) "blue")
+    (set! (.-lineWidth ctx) 5)
+    (.strokeRect ctx xp yp wp hp)
+    (when-let [dxp (om/get-state owner :dxp)]
+      (let [dyp (om/get-state owner :dyp)
+            snappydxp (round-halfway-down dxp wpcell)
+            snappydyp (round-halfway-down dyp hpcell)]
+        (set! (.-strokeStyle ctx) "rgba(0,0,255,0.25)")
+        (.strokeRect ctx (+ xp snappydxp) (+ yp snappydyp) wp hp)))))
 
-(defn set-initial-sensor-value []
-  (go
-    (let [token (<! (do-xhr "/set-initial-sensor-value"
-                            (sensory-data)))]
-      (reset! server-token token)
-      (println "Server assigned us token" token))))
+(defn sensory-data [world observer]
+  (let [{:keys [xi width yi height]} @observer]
+    (vec (for [xi (range xi (+ xi width))]
+           (subvec (nth @world xi) yi (+ yi height))))))
 
-(defn create-snapshot-element []
-  (let [sscnvs (.createElement js/document "canvas")
-        sswidth 100
-        ssheight 100]
-    (doseq [[k v] {"width" sswidth
-                   "height" ssheight}]
-      (.setAttribute sscnvs k v))
-    (paint-grid 3 3 sswidth ssheight (sensory-data) (.getContext sscnvs "2d"))
-    sscnvs))
-
-;; Structure:
-;; { sensor_value {:sdrs [{:sdr sdr1
-;;                         :statistics {:count count1
-;;                                      :count-element el}}
-;;                        {:sdr sdr2
-;;                         :statistics {:count count1
-;;                                      :count-element el}}]
-;;                 :container-element el
-;;                 }}
-(def sensor-sdrs (atom {}))
-
-(defn add-action-and-result [dxi dyi]
+(defn add-action-and-result [dxi dyi world observer owner]
   (go (let [port (do-xhr "/add-action-and-result"
-                         {"context_id" @server-token
+                         {"context_id" (om/get-state owner :server-token)
                           "motor_value" [dxi dyi]
-                          "new_sensor_value" (sensory-data)})
+                          "new_sensor_value" (sensory-data world observer)})
             response (<! port)
-            sp-columns (into (sorted-set) (response "sp_output"))
-            data (response "sensor_value")]
-        (when-not (contains? @sensor-sdrs data)
-          (let [sdrlog-el (dom/createElement "div")]
-            (dom/append js/document.body
-                        (dom/createDom "div" nil
-                                       (create-snapshot-element)
-                                       sdrlog-el))
-            (swap! sensor-sdrs assoc-in [data]
-                   {:sdrs []
-                    :container-element sdrlog-el})))
-        (when-not (= sp-columns
-                 (-> @sensor-sdrs (get-in [data :sdrs]) last :sdr))
-          (let [count-el (dom/createDom "div" nil 0)]
-            (dom/append (get-in @sensor-sdrs [data :container-element])
-                        (create-styled-dom "div" {"width" "100px"
-                                                  "font-family" "Consolas"}
-                                           nil (string/join " " sp-columns))
-                        count-el)
-            (swap! sensor-sdrs update-in [data :sdrs]
-                   conj {:sdr sp-columns
-                         :statistics {:count 0
-                                      :count-element count-el}})))
-        (let [idx (-> @sensor-sdrs (get-in [data :sdrs]) count dec)]
-          (swap! sensor-sdrs update-in [data :sdrs idx :statistics :count]
-                 inc)
-          (let [statistics (get-in @sensor-sdrs [data :sdrs idx :statistics])]
-            (set! (.-innerHTML (:count-element statistics))
-                  (:count statistics)))))))
+            log-entry {:sdr (into (sorted-set) (response "sp_output"))
+                       :sensor-value (response "sensor_value")}]
+        (put! (om/get-state owner :logchan) log-entry))))
 
-(defn commit-vf [xi yi]
-  (when (and (<= 0 xi) (< xi worldwi) (<= 0 yi) (< yi worldhi))
-    (let [dxi (- xi @vfxi)
-          dyi (- yi @vfyi)]
-      (reset! vfxi xi)
-      (reset! vfyi yi)
-      (if (nil? @server-token)
-        (set-initial-sensor-value)
-        (add-action-and-result dxi dyi))))
-  (paint))
+(defn handle-saccader-panning [{:keys [world observer] :as app} owner]
+  (go-loop []
+    (let [downevt (<! (om/get-state owner :mousedown))]
+      (when (= (.-button downevt) 0)
+        (om/set-state! owner :grabbed true)
+        (let [[kmousemove moves] (listen js/window "mousemove")
+              [kmouseup ups] (listen js/window "mouseup")]
+          (while (not= ups
+                       (let [[evt port] (alts! [moves ups])]
+                         (om/set-state! owner :dxp (- (.-clientX evt)
+                                                      (.-clientX downevt)))
+                         (om/set-state! owner :dyp (- (.-clientY evt)
+                                                      (.-clientY downevt)))
+                         port)))
+          (events/unlistenByKey kmousemove)
+          (events/unlistenByKey kmouseup)
 
-(defn paint-dream-vf [xp yp]
-  (paint-vf-rectangle "rgba(0,0,255,0.25)" xp yp))
+          ;; In obscure cases (e.g. javascript breakpoints)
+          ;; there are stale mousedowns sitting in the queue.
+          (while (let [[_ port] (alts! [(om/get-state owner :mousedown)]
+                                       :default :drained)]
+                   (not= :default port))))
 
-(defn consider-vf [xi yi]
-  ;; TODO: During a drag, cache the values for each spot on the grid as it's
-  ;; retrieved.
-  )
+        (let [{:keys [dxp dyp]} (om/get-state owner)]
+          (when (not (nil? dxp))
+            (let [dxi (-> dxp
+                          abs
+                          (/ (cell-width @world owner))
+                          floor
+                          (cond-> (neg? dxp) (* -1)))
+                  dyi (-> dyp
+                          abs
+                          (/ (cell-height @world owner))
+                          floor
+                          (cond-> (neg? dyp) (* -1)))
+                  xi (+ (@observer :xi) dxi)
+                  yi (+ (@observer :yi) dyi)]
+              (when (and (<= 0 xi)
+                         (<= (+ xi (@observer :width))
+                             (world-width @world))
+                         (<= 0 yi)
+                         (<= (+ yi (@observer :height))
+                             (world-height @world)))
+                (om/transact! observer :xi #(+ % dxi))
+                (om/transact! observer :yi #(+ % dyi))
+                (add-action-and-result dxi dyi world observer owner)))
+            (om/set-state! owner :dxp nil)
+            (om/set-state! owner :dyp nil)))
+        (om/set-state! owner :grabbed false)))
+    (recur)))
 
-(defn round-halfway-down [n interval]
-  (let [magnitude (.abs js/Math n)
-        direction (if (pos? n) 1 -1)
-        remainder (mod magnitude interval)]
-    (* direction (- magnitude (/ remainder 2)))))
+(def canvas-ref "saccader-canvas")
+(defn saccader-view [{:keys [world observer] :as app} owner]
+  (reify
+    om/IInitState
+    (init-state [_]
+      {:grabbed false
+       :mousedown (chan)
+       :dxp nil
+       :dyp nil
+       :server-token nil})
 
-(defn paint-partialdrag [dxp dyp]
-  (let [snappydxp (round-halfway-down dxp (xi->xp 1))
-        snappydyp (round-halfway-down dyp (yi->yp 1))]
-    (paint)
-    (paint-dream-vf (+ (xi->xp @vfxi) snappydxp)
-                    (+ (yi->yp @vfyi) snappydyp))))
+    om/IWillMount
+    (will-mount [_]
+      (handle-saccader-panning app owner)
+      (go
+        (let [token (<! (do-xhr "/set-initial-sensor-value"
+                                (sensory-data world observer)))]
+          (om/set-state! owner :server-token token)
+          (println "Server assigned us token" token))))
 
-(defn listen [el type]
-  (let [port (chan)
-        eventkey (events/listen el type #(put! port %1))]
-    [eventkey port]))
+    om/IDidMount
+    (did-mount [_]
+      (paint-saccader app owner)
+      )
 
-(defn handle-canvas-panning []
-  (let [[_ downs] (listen canvas "mousedown")]
-    (go-loop []
-      ;; Can't use double dot -- http://dev.clojure.org/jira/browse/ASYNC-49
-      (set-prefixed! (.-cursor (.-style canvas)) "grab")
-      (let [downevt (<! downs)]
-        (when (= (.-button downevt) events/BrowserEvent.MouseButton.LEFT)
-          (let [[kmousemove moves] (listen js/window "mousemove")
-                [kmouseup ups] (listen js/window "mouseup")]
-            ;; Again -- http://dev.clojure.org/jira/browse/ASYNC-49
-            (set-prefixed! (.-cursor (.-style canvas)) "grabbing")
-            (while (not= ups
-                         (let [[evt port] (alts! [moves ups])
-                               dxp (- (.-clientX evt) (.-clientX downevt))
-                               dyp (- (.-clientY evt) (.-clientY downevt))
-                               newxi (+ @vfxi (dxp->dxi dxp))
-                               newyi (+ @vfyi (dyp->dyi dyp))]
-                           (cond
-                            (= port moves)
-                            (do
-                              (consider-vf newxi newyi)
-                              (paint-partialdrag dxp dyp))
+    om/IDidUpdate
+    (did-update [_ prev-props prev-state]
+      (paint-saccader app owner))
 
-                            (= port ups)
-                            (commit-vf newxi newyi))
-                           port)))
-            (events/unlistenByKey kmousemove)
-            (events/unlistenByKey kmouseup)
+    om/IRenderState
+    (render-state [_ {:keys [width height style grabbed mousedown]}]
+      (dom/canvas #js {:ref canvas-ref :width width :height height
+                       :className (if grabbed "grabbed" "grab")
+                       :onMouseDown (fn [e] (.persist e) (put! mousedown e))
+                       :style (clj->js style)
+                       }))))
 
-            ;; In obscure cases (e.g. javascript breakpoints)
-            ;; there are stale mousedowns sitting in the queue.
-            (while (let [[_ port] (alts! [downs] :default :drained)]
-                     (not= :default port))))))
-      (recur))))
+;; ============================================================================
+;; Component: world-and-observer-view
 
+(defn world-and-observer-view [{:keys [world] :as app} owner]
+  (reify
+    om/IRenderState
+    (render-state [_ {:keys [width height logchan]}]
+      (dom/div #js {:position "relative"
+                    :style #js {:width width :height height}}
+               (om/build world-view world
+                         {:init-state
+                          {:width width :height height
+                           :style {:position "absolute"
+                                   :left 0 :top 0 :zIndex 0}}})
+               (om/build saccader-view app
+                         {:init-state
+                          {:width width :height height :logchan logchan
+                           :style {:position "absolute"
+                                   :left 0 :top 0 :zIndex 1}}})))))
 
-(defn add-everything-to-document []
-  (dom/appendChild js/document.body canvas)
-  (handle-canvas-panning)
-  (commit-vf 3 3))
+;; ============================================================================
+;; Component: log-view
 
-(set! (.-onload js/window)
-      (fn []
-        (add-everything-to-document)))
+(defn log-entry [[sensor-value sdr-log]]
+  (apply dom/div nil
+           (om/build world-view sensor-value
+                     {:init-state {:width 100 :height 100}})
+
+           (map (fn [{:keys [sdr count]}]
+                  (dom/div nil
+                           (dom/div #js {:style
+                                         #js {:width 100
+                                              :font-family "Consolas"}}
+                                    (string/join " " sdr))
+                           (dom/div nil count)))
+                sdr-log)))
+
+;; TODO - as I write this, every time I save it destroys the log.
+;; When I find myself being annoyed by this kind of thing, I bet the right
+;; answer is that I should store it in the app-state (and defonce the app state)
+(defn log-view [app owner]
+  (reify
+    om/IInitState
+    (init-state [_]
+      {;; Structure:
+       ;; {sensor-value1 [{:sdr sdr1 :count count1}
+       ;;                 {:sdr sdr2 :count count2}]}
+       :sdr-journal {}})
+
+    om/IWillMount
+    (will-mount [_]
+      (go-loop []
+        (let [{:keys [sdr sensor-value]} (<! (om/get-state owner :logchan))]
+          (om/update-state! owner [:sdr-journal sensor-value]
+                            (fn [sdr-log]
+                              (if (not= sdr (:sdr (last sdr-log)))
+                                (vec (conj sdr-log {:sdr sdr :count 1}))
+                                (update-in sdr-log [(dec (count sdr-log))
+                                                    :count]
+                                           inc)))))
+        (recur)))
+
+    om/IRenderState
+    (render-state [_ {:keys [sdr-journal]}]
+      (apply dom/div nil
+             (map log-entry sdr-journal)))))
+
+;; ============================================================================
 
 (defn main []
-  ;; TODO: (re-)render the page
-  )
+  (let [logchan (chan)]
+    (om/root world-and-observer-view app-state
+             {:target (.getElementById js/document "app")
+              :init-state {:width 500 :height 500 :logchan logchan}})
+    (om/root log-view app-state
+             {:target (.getElementById js/document "log")
+              :init-state {:logchan logchan}})))
