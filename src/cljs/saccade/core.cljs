@@ -53,17 +53,6 @@
 
       faker)))
 
-;; Naming conventions:
-;; x and y use the upper-left corner as the origin
-;; [xi yi wi hi]
-;; the x-index, y-index, width, and height, in terms of the grid
-;; [xp yp wp hp]
-;; x, y, width, and height in terms of pixels
-;; [d]
-;; Delta. dxi, dxp, etc.
-;; [vf]
-;; The "visual field"
-
 (defonce app-state
   (atom
    {:world {:bitmap [[0 0 0 0 0 0 0 0 0]
