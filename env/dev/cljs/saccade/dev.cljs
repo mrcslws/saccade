@@ -5,6 +5,7 @@
         [weasel.repl :as weasel]))
 
 (enable-console-print!)
+(set! *print-newline* true)
 
 (figwheel/watch-and-reload
     :websocket-url "ws://localhost:3449/figwheel-ws"

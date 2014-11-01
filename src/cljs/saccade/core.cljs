@@ -9,11 +9,49 @@
   (:require-macros [saccade.macros :refer [set-prefixed!]]
                    [cljs.core.async.macros :refer [go go-loop]]))
 
+(enable-console-print!)
 
 (defn chkcurs [v]
   (if (om/cursor? v)
     v
     (throw (js/Error. (str v " is not a cursor!")))))
+
+
+(def log? true)
+(defn instrument [actual-view]
+  (fn instrumented-view [state owner]
+    (let [component-name (.-name actual-view)
+          log (fn [& args] (when log? (apply println component-name args)))
+          faker (reify)
+          actual (actual-view state owner)]
+      (log)
+      (when (satisfies? om/IInitState actual)
+        (specify! faker om/IInitState (init-state [_]
+                                        (log "init-state")
+                                        (om/init-state actual))))
+      (when (satisfies? om/IRenderState actual)
+        (specify! faker om/IRenderState (render-state [_ state]
+                                          (log "render-state")
+                                          (om/render-state actual state))))
+      (when (satisfies? om/IRender actual)
+        (specify! faker om/IRender (render [_]
+                                     (log "render")
+                                     (om/render actual))))
+      (when (satisfies? om/IWillMount actual)
+        (specify! faker om/IWillMount (will-mount [_]
+                                        (log "will-mount")
+                                        (om/will-mount actual))))
+      (when (satisfies? om/IDidMount actual)
+        (specify! faker om/IDidMount (did-mount [_]
+                                       (log "did-mount")
+                                       (om/did-mount actual))))
+      (when (satisfies? om/IDidUpdate actual)
+        (specify! faker om/IDidUpdate (did-update [_ prev-props prev-state]
+                                        (log "did-update")
+                                        (om/did-update actual prev-props
+                                                       prev-state))))
+
+      faker)))
 
 ;; Naming conventions:
 ;; x and y use the upper-left corner as the origin
@@ -26,7 +64,7 @@
 ;; [vf]
 ;; The "visual field"
 
-(def app-state
+(defonce app-state
   (atom
    {:world {:bitmap [[0 0 0 0 0 0 0 0 0]
                      [0 0 0 0 0 0 0 0 0]
@@ -40,7 +78,11 @@
             :width-px 500
             :height-px 500}
     :observer {:xi 3 :yi 3 :width 3 :height 3
-               :server-token nil}}))
+               :server-token nil}
+    ;; Structure:
+    ;; {sensor-value1 [{:sdr sdr1 :count count1}
+    ;;                 {:sdr sdr2 :count count2}]}
+    :sdr-journal {}}))
 
 (defn bitmap-width [bitmap]
   (count bitmap))
@@ -51,16 +93,16 @@
 ;; ============================================================================
 ;; Component: world-view
 
+(def world-canvas-ref "world-canvas")
+
 (defn clear-canvas [ctx]
   (.save ctx)
   (.setTransform ctx 1 0 0 1 0 0)
   (.clearRect ctx 0 0 (.. ctx -canvas -width) (.. ctx -canvas -height))
   (.restore ctx))
 
-(def canvas-ref "world-canvas")
-
 (defn paint-world [{:keys [bitmap width-px height-px]} owner]
-  (let [ctx (.getContext (om/get-node owner canvas-ref) "2d")
+  (let [ctx (.getContext (om/get-node owner world-canvas-ref) "2d")
         wi (bitmap-width bitmap)
         hi (bitmap-height bitmap)
         wpcell (/ width-px wi)
@@ -79,24 +121,27 @@
       ;; Paint the grid.
       (.strokeRect ctx xp yp wpcell hpcell))))
 
-(defn world-view [world owner]
-  (reify
-    om/IDidMount
-    (did-mount [_]
-      (paint-world world owner))
+(def world-view
+  (instrument
+   (fn world-view [world owner]
+     (reify
+       om/IDidMount
+       (did-mount [_]
+         (paint-world world owner))
 
-    om/IDidUpdate
-    (did-update [_ prev-props prev-state]
-      (paint-world world owner))
+       om/IDidUpdate
+       (did-update [_ prev-props prev-state]
+         (paint-world world owner))
 
-    om/IRenderState
-    (render-state [_ {:keys [style]}]
-      (dom/canvas #js {:ref canvas-ref :width (:width-px world)
-                       :height (:height-px world) :style (clj->js style)}))))
-
+       om/IRenderState
+       (render-state [_ {:keys [style]}]
+         (dom/canvas #js {:ref world-canvas-ref :width (:width-px world)
+                          :height (:height-px world) :style (clj->js style)}))))))
 
 ;; ============================================================================
 ;; Component: saccader-view
+
+(def saccader-canvas-ref "saccader-canvas")
 
 (defn floor [num]
   (.floor js/Math num))
@@ -137,7 +182,7 @@
     port))
 
 (defn paint-saccader [{:keys [world observer]} owner]
-  (let [ctx (.getContext (om/get-node owner canvas-ref) "2d")
+  (let [ctx (.getContext (om/get-node owner saccader-canvas-ref) "2d")
         wpcell (cell-width world owner)
         hpcell (cell-height world owner)
         xp (* wpcell (:xi observer))
@@ -224,65 +269,68 @@
           (om/set-state! owner :grabbed false)))
       (recur))))
 
-(def canvas-ref "saccader-canvas")
-(defn saccader-view [{:keys [world observer]} owner]
-  (chkcurs world)
-  (chkcurs observer)
-  (reify
-    om/IInitState
-    (init-state [_]
-      {:grabbed false
-       :mousedown (chan)
-       :dxp nil
-       :dyp nil})
+(def saccader-view
+  (instrument
+   (fn saccader-view [{:keys [world observer]} owner]
+     (chkcurs world)
+     (chkcurs observer)
+     (reify
+       om/IInitState
+       (init-state [_]
+         {:grabbed false
+          :mousedown (chan)
+          :dxp nil
+          :dyp nil})
 
-    om/IWillMount
-    (will-mount [_]
-      (handle-saccader-panning {:world world :observer observer} owner)
-      (go
-        (let [token (<! (do-xhr "/set-initial-sensor-value"
-                                (sensory-data @world @observer)))]
-          (om/update! observer :server-token token)
-          (println "Server assigned us token" token))))
+       om/IWillMount
+       (will-mount [_]
+         (handle-saccader-panning {:world world :observer observer} owner)
+         (when (nil? (:server-token observer))
+           (go
+             (let [token (<! (do-xhr "/set-initial-sensor-value"
+                                     (sensory-data @world @observer)))]
+               (om/update! observer :server-token token)
+               (println "Server assigned us token" token)))))
 
-    om/IDidMount
-    (did-mount [_]
-      (paint-saccader {:world world :observer observer} owner))
+       om/IDidMount
+       (did-mount [_]
+         (paint-saccader {:world world :observer observer} owner))
 
-    om/IDidUpdate
-    (did-update [_ prev-props prev-state]
-      (paint-saccader {:world world :observer observer} owner))
+       om/IDidUpdate
+       (did-update [_ prev-props prev-state]
+         (paint-saccader {:world world :observer observer} owner))
 
-    om/IRenderState
-    (render-state [_ {:keys [style grabbed mousedown]}]
-      (dom/canvas #js {:ref canvas-ref
-                       :width (:width-px world) :height (:height-px world)
-                       :className (if grabbed "grabbed" "grab")
-                       :onMouseDown (fn [e] (.persist e) (put! mousedown e))
-                       :style (clj->js style)
-                       }))))
+       om/IRenderState
+       (render-state [_ {:keys [style grabbed mousedown]}]
+         (dom/canvas #js {:ref saccader-canvas-ref
+                          :width (:width-px world) :height (:height-px world)
+                          :className (if grabbed "grabbed" "grab")
+                          :onMouseDown (fn [e] (.persist e) (put! mousedown e))
+                          :style (clj->js style)
+                          }))))))
 
 ;; ============================================================================
 ;; Component: world-and-observer-view
-
-(defn world-and-observer-view [app owner]
-  (let [world (chkcurs (:world app))
-        observer (chkcurs (:observer app))]
-    (reify
-      om/IRenderState
-      (render-state [_ {:keys [logchan]}]
-        (dom/div #js {:position "relative"
-                      :style #js {:width (:width-px world)
-                                  :height (:height-px world)}}
-                 (om/build world-view world
-                           {:init-state
-                            {:style {:position "absolute"
-                                     :left 0 :top 0 :zIndex 0}}})
-                 (om/build saccader-view {:world world :observer observer}
-                           {:init-state
-                            {:logchan logchan
-                             :style {:position "absolute"
-                                     :left 0 :top 0 :zIndex 1}}}))))))
+(def world-and-observer-view
+  (instrument
+   (fn world-and-observer-view [app owner]
+     (let [world (chkcurs (:world app))
+           observer (chkcurs (:observer app))]
+       (reify
+         om/IRenderState
+         (render-state [_ {:keys [logchan]}]
+           (dom/div #js {:position "relative"
+                         :style #js {:width (:width-px world)
+                                     :height (:height-px world)}}
+                    (om/build world-view world
+                              {:init-state
+                               {:style {:position "absolute"
+                                        :left 0 :top 0 :zIndex 0}}})
+                    (om/build saccader-view {:world world :observer observer}
+                              {:init-state
+                               {:logchan logchan
+                                :style {:position "absolute"
+                                        :left 0 :top 0 :zIndex 1}}}))))))))
 
 ;; ============================================================================
 ;; Component: log-view
@@ -290,7 +338,7 @@
 (defn log-entry [[sensor-value sdr-log]]
   (apply dom/div nil
          (om/build world-view {:bitmap sensor-value
-                               :width-px 100 :height-px 100})
+                                      :width-px 100 :height-px 100})
 
          (map (fn [{:keys [sdr count]}]
                 (dom/div nil
@@ -301,37 +349,33 @@
                          (dom/div nil count)))
               sdr-log)))
 
-;; TODO - as I write this, every time I save it destroys the log.
-;; When I find myself being annoyed by this kind of thing, I bet the right
-;; answer is that I should store it in the app-state (and defonce the app state)
-(defn log-view [_ owner]
-  (reify
-    om/IInitState
-    (init-state [_]
-      {;; Structure:
-       ;; {sensor-value1 [{:sdr sdr1 :count count1}
-       ;;                 {:sdr sdr2 :count count2}]}
-       :sdr-journal {}})
+(def log-view
+  (instrument
+   (fn log-view [{:keys [sdr-journal]} owner]
+     (reify
+       om/IWillMount
+       (will-mount [_]
+         ;; TODO - close this go-loop on unmount
 
-    om/IWillMount
-    (will-mount [_]
-      (go-loop []
-        (let [{:keys [sdr sensor-value]} (<! (om/get-state owner :logchan))]
-          (om/update-state! owner [:sdr-journal sensor-value]
-                            (fn [sdr-log]
-                              (if (not= sdr (:sdr (last sdr-log)))
-                                (vec (conj sdr-log {:sdr sdr :count 1}))
-                                (update-in sdr-log [(dec (count sdr-log))
-                                                    :count]
-                                           inc)))))
-        (recur)))
+         (go-loop []
+           (let [{:keys [sdr sensor-value]} (<! (om/get-state owner :logchan))]
+             ()
+             (om/transact! sdr-journal [sensor-value]
+                           (fn [sdr-log]
+                             (if (not= sdr (:sdr (last sdr-log)))
+                               (vec (conj sdr-log {:sdr sdr :count 1}))
+                               (update-in sdr-log [(dec (count sdr-log))
+                                                   :count]
+                                          inc)))))
+           (recur)))
 
-    om/IRenderState
-    (render-state [_ {:keys [sdr-journal]}]
-      (apply dom/div nil
-             (map log-entry sdr-journal)))))
+       om/IRender
+       (render [_]
+         (apply dom/div nil
+                (map log-entry sdr-journal)))))))
 
 ;; ============================================================================
+
 
 (defn main []
   (let [logchan (chan)]
