@@ -1,5 +1,5 @@
 (ns saccade.dev
-    (:require [saccade.core :as core]
+    (:require [saccade.main]
         [figwheel.client :as figwheel :include-macros true]
         [cljs.core.async :refer [put!]]
         [weasel.repl :as weasel]))
@@ -9,8 +9,8 @@
 
 (figwheel/watch-and-reload
     :websocket-url "ws://localhost:3449/figwheel-ws"
-    :jsload-callback (fn [] (core/main)))
+    :jsload-callback (fn [] (saccade.main/render)))
 
 (weasel/connect "ws://localhost:9001" :verbose true :print #{:repl :console})
 
-(core/main)
+(saccade.main/render)

@@ -1,4 +1,4 @@
 (ns saccade.prod
-  (:require [saccade.core :as core]))
+  (:require [saccade.main]))
 
-(core/main)
+(saccade.main/main)
