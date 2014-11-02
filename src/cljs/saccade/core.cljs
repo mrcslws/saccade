@@ -125,7 +125,8 @@
        om/IRenderState
        (render-state [_ {:keys [style]}]
          (dom/canvas #js {:ref world-canvas-ref :width (:width-px world)
-                          :height (:height-px world) :style (clj->js style)}))))))
+                          :height (:height-px world)
+                          :style (clj->js style)}))))))
 
 ;; ============================================================================
 ;; Component: saccader-view
@@ -338,6 +339,7 @@
                          (dom/div nil count)))
               sdr-log)))
 
+(def show-logs? true)
 (def log-view
   (instrument
    (fn log-view [{:keys [sdr-journal]} owner]
@@ -360,8 +362,8 @@
 
        om/IRender
        (render [_]
-         (apply dom/div nil
-                (map log-entry sdr-journal)))))))
+         (when show-logs? (apply dom/div nil
+                                 (map log-entry sdr-journal))))))))
 
 ;; ============================================================================
 
