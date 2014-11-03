@@ -30,7 +30,8 @@
        (will-mount [_]
          ;; TODO - close this go-loop on unmount
          (go-loop []
-           (let [{:keys [sdr sensor-value]} (<! (om/get-state owner :logchan))]
+           (let [{:keys [sdr sensor-value]}
+                 (<! (om/get-shared owner :sdr-channel))]
              ;; Structure:
              ;; {sensor-value1 [{:sdr sdr1 :count count1}
              ;;                 {:sdr sdr2 :count count2}]}

@@ -83,7 +83,7 @@
             response (<! port)
             log-entry {:sdr (into (sorted-set) (response "sp_output"))
                        :sensor-value (response "sensor_value")}]
-        (put! (om/get-state owner :logchan) log-entry))))
+        (put! (om/get-shared owner :sdr-channel) log-entry))))
 
 (defn handle-saccader-panning [{:keys [world observer]} owner]
   (chkcurs observer)
