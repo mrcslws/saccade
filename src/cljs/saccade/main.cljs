@@ -31,7 +31,6 @@
 (defn render []
   (om/root conductor-component app-state
            {:target (.getElementById js/document "app")
-            :init-state {:width 500 :height 500}
             :shared {:sdr-channel sdr-channel}})
   (om/root sdrjournal-component app-state
            {:target (.getElementById js/document "log")
