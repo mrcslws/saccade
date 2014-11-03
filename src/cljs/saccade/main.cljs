@@ -11,24 +11,24 @@
 
 (defonce app-state
   (atom
-   {:world {:bitmap [[0 0 0 0 0 0 0 0 0]
-                     [0 0 0 0 0 0 0 0 0]
-                     [0 0 0 0 0 0 0 0 0]
-                     [0 0 0 0 0 0 0 0 0]
-                     [0 0 0 0 1 0 0 0 0]
-                     [0 0 0 0 0 1 0 0 0]
-                     [0 0 0 0 0 0 0 0 0]
-                     [0 0 0 0 0 0 0 0 0]
-                     [0 0 0 0 0 0 0 0 0]]
-            :width-px 500
-            :height-px 500}
-    :observer {:xi 3 :yi 3 :width 3 :height 3
-               :server-token nil}
+   {:world [[0 0 0 0 0 0 0 0 0]
+            [0 0 0 0 0 0 0 0 0]
+            [0 0 0 0 0 0 0 0 0]
+            [0 0 0 0 0 0 0 0 0]
+            [0 0 0 0 1 0 0 0 0]
+            [0 0 0 0 0 1 0 0 0]
+            [0 0 0 0 0 0 0 0 0]
+            [0 0 0 0 0 0 0 0 0]
+            [0 0 0 0 0 0 0 0 0]]
+    :world-view {:wp 500 :hp 500}
+    :lens {:xi 3 :yi 3 :wi 3 :hi 3
+           :server-token nil}
     :sdr-journal {}}))
 
 (defonce sdr-channel (chan))
 
 (defn render []
+  (println app-state)
   (om/root conductor-component app-state
            {:target (.getElementById js/document "app")
             :shared {:sdr-channel sdr-channel}})

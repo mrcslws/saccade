@@ -2,23 +2,15 @@
   (:require [om.core :as om :include-macros true]
             [om.dom :as dom :include-macros true]
             [saccade.components.helpers :refer [instrument]]
-            [saccade.canvashelpers :refer [clear-canvas]]))
+            [saccade.canvashelpers :as canvas]
+            [saccade.bitmaphelpers :as bitmap]))
 
-(defn bitmap-width [bitmap]
-  (count bitmap))
+(def bitmap-ref "bitmap")
 
-(defn bitmap-height [bitmap]
-  (count (first bitmap)))
-
-(def world-canvas-ref "world-canvas")
-
-(defn paint-world [{:keys [bitmap width-px height-px]} owner]
-  (let [ctx (.getContext (om/get-node owner world-canvas-ref) "2d")
-        wi (bitmap-width bitmap)
-        hi (bitmap-height bitmap)
-        wpcell (/ width-px wi)
-        hpcell (/ height-px hi)]
-    (clear-canvas ctx)
+(defn paint [bitmap {:keys [wp hp]} owner]
+  (let [ctx (.getContext (om/get-node owner bitmap-ref) "2d")
+        {:keys [wi hi wpcell hpcell]} (bitmap/onto-px bitmap wp hp)]
+    (canvas/clear ctx)
     (set! (.-fillStyle ctx) "black")
     (set! (.-strokeStyle ctx) "#2E7DD1")
     (set! (.-lineWidth ctx) 1)
@@ -34,18 +26,18 @@
 
 (def bitmap-component
   (instrument
-   (fn bitmap-component [world owner]
+   (fn bitmap-component [{:keys [bitmap view-config]} owner]
      (reify
        om/IDidMount
        (did-mount [_]
-         (paint-world world owner))
+         (paint bitmap view-config owner))
 
        om/IDidUpdate
-       (did-update [_ prev-props prev-state]
-         (paint-world world owner))
+       (did-update [_ _ _]
+         (paint bitmap view-config owner))
 
        om/IRenderState
        (render-state [_ {:keys [style]}]
-         (dom/canvas #js {:ref world-canvas-ref :width (:width-px world)
-                          :height (:height-px world)
+         (dom/canvas #js {:ref bitmap-ref :width (:wp view-config)
+                          :height (:hp view-config)
                           :style (clj->js style)}))))))

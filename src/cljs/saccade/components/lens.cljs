@@ -5,12 +5,13 @@
             [cljs.core.async :refer [<! put! alts! chan]]
             [goog.events :as events]
             [goog.net.XhrIo :as XhrIo]
-            [saccade.canvashelpers :refer [clear-canvas]]
-            [saccade.components.helpers :refer [instrument chkcurs]]
-            [saccade.components.bitmap :refer [bitmap-width bitmap-height]])
+            [saccade.canvashelpers :as canvas]
+            [saccade.bitmaphelpers :as bitmap]
+            [saccade.components.helpers :refer [instrument chkcurs]])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]))
 
-(def saccader-canvas-ref "saccader-canvas")
+;; ############################################################################
+;; Math help
 
 (defn floor [num]
   (.floor js/Math num))
@@ -18,22 +19,8 @@
 (defn abs [num]
   (.abs js/Math num))
 
-(defn round-halfway-down [n interval]
-  (let [magnitude (.abs js/Math n)
-        direction (if (pos? n) 1 -1)
-        remainder (mod magnitude interval)]
-    (* direction (- magnitude (/ remainder 2)))))
-
-(defn cell-width [{:keys [bitmap width-px]} owner]
-  (/ width-px (bitmap-width bitmap)))
-
-(defn cell-height [{:keys [bitmap height-px]} owner]
-  (/ height-px (bitmap-height bitmap)))
-
-(defn listen [el type]
-  (let [port (chan)
-        eventkey (events/listen el type #(put! port %1))]
-    [eventkey port]))
+;; ############################################################################
+;; Exporting data from beneath the lens
 
 (defn do-xhr [command-path message]
   (let [port (chan)
@@ -50,15 +37,107 @@
                 "POST" message)
     port))
 
-(defn paint-saccader [{:keys [world observer]} owner]
-  (let [ctx (.getContext (om/get-node owner saccader-canvas-ref) "2d")
-        wpcell (cell-width world owner)
-        hpcell (cell-height world owner)
-        xp (* wpcell (:xi observer))
-        yp (* hpcell (:yi observer))
-        wp (* wpcell (:width observer))
-        hp (* hpcell (:height observer))]
-    (clear-canvas ctx)
+(defn bits-under-lens [bitmap lens]
+  (let [{:keys [xi yi wi hi]} lens]
+    (vec (for [xi (range xi (+ xi wi))]
+           (subvec (nth bitmap xi) yi (+ yi hi))))))
+
+(defn add-action-and-result [dxi dyi bitmap lens owner]
+  (go (let [port (do-xhr "/add-action-and-result"
+                         {"context_id" (:server-token lens)
+                          "motor_value" [dxi dyi]
+                          "new_sensor_value" (bits-under-lens bitmap lens)})
+            response (<! port)
+            log-entry {:sdr (into (sorted-set) (response "sp_output"))
+                       :sensor-value (response "sensor_value")}]
+        (put! (om/get-shared owner :sdr-channel) log-entry))))
+
+;; ############################################################################
+;; Saccading the lens
+
+(defn commit-change [bitmap wpbitmap hpbitmap lens owner]
+  (let [{:keys [dxp dyp]} (om/get-state owner)]
+    (when (not (nil? dxp))
+      (let [{:keys [wi hi wpcell hpcell]} (bitmap/onto-px bitmap
+                                                          wpbitmap hpbitmap)
+            dxi (-> dxp
+                    abs
+                    (/ wpcell)
+                    floor
+                    (cond-> (neg? dxp) (* -1)))
+            dyi (-> dyp
+                    abs
+                    (/ hpcell)
+                    floor
+                    (cond-> (neg? dyp) (* -1)))
+            xi (+ (@lens :xi) dxi)
+            yi (+ (@lens :yi) dyi)]
+        (when (and (<= 0 xi)
+                   (<= (+ xi (@lens :wi)) wi)
+                   (<= 0 yi)
+                   (<= (+ yi (@lens :hi)) hi))
+          (om/transact! lens :xi #(+ % dxi))
+          (om/transact! lens :yi #(+ % dyi))
+          (add-action-and-result dxi dyi bitmap @lens owner)))
+      (om/set-state! owner :dxp nil)
+      (om/set-state! owner :dyp nil))))
+
+;; ############################################################################
+;; Drag-drop
+
+(defn listen [el type]
+  (let [port (chan)
+        eventkey (events/listen el type #(put! port %1))]
+    [eventkey port]))
+
+(defn round-halfway-down [n interval]
+  (let [magnitude (.abs js/Math n)
+        direction (if (pos? n) 1 -1)
+        remainder (mod magnitude interval)]
+    (* direction (- magnitude (/ remainder 2)))))
+
+(defn handle-panning [owner on-commit]
+  (go-loop []
+    (let [downevt (<! (om/get-state owner :mousedown))]
+      (when (= (.-button downevt) 0)
+        (om/set-state! owner :grabbed true)
+
+        (let [[kmousemove moves] (listen js/window "mousemove")
+              [kmouseup ups] (listen js/window "mouseup")]
+          (while (not= ups
+                       (let [[evt port] (alts! [moves ups])]
+                         (om/set-state! owner :dxp (- (.-clientX evt)
+                                                      (.-clientX downevt)))
+                         (om/set-state! owner :dyp (- (.-clientY evt)
+                                                      (.-clientY downevt)))
+                         port)))
+          (events/unlistenByKey kmousemove)
+          (events/unlistenByKey kmouseup))
+
+        ;; In obscure cases (e.g. javascript breakpoints)
+        ;; there are stale mousedowns sitting in the queue.
+        (while (let [[_ port] (alts! [(om/get-state owner :mousedown)]
+                                     :default :drained)]
+                 (not= :default port)))
+
+        (on-commit)
+
+        (om/set-state! owner :grabbed false)))
+    (recur)))
+
+;; ############################################################################
+;; Display logic
+
+(def lens-ref "lens-canvas")
+
+(defn paint [bitmap wpbitmap hpbitmap lens owner]
+  (let [ctx (.getContext (om/get-node owner lens-ref) "2d")
+        {:keys [wpcell hpcell]} (bitmap/onto-px bitmap wpbitmap hpbitmap)
+        xp (* wpcell (:xi lens))
+        yp (* hpcell (:yi lens))
+        wp (* wpcell (:wi lens))
+        hp (* hpcell (:hi lens))]
+    (canvas/clear ctx)
     (set! (.-strokeStyle ctx) "blue")
     (set! (.-lineWidth ctx) 5)
     (.strokeRect ctx xp yp wp hp)
@@ -69,80 +148,9 @@
         (set! (.-strokeStyle ctx) "rgba(0,0,255,0.25)")
         (.strokeRect ctx (+ xp snappydxp) (+ yp snappydyp) wp hp)))))
 
-(defn sensory-data [world observer]
-  (let [{:keys [bitmap]} world
-        {:keys [xi width yi height]} observer]
-    (vec (for [xi (range xi (+ xi width))]
-           (subvec (nth bitmap xi) yi (+ yi height))))))
-
-(defn add-action-and-result [dxi dyi world observer owner]
-  (go (let [port (do-xhr "/add-action-and-result"
-                         {"context_id" (:server-token @observer)
-                          "motor_value" [dxi dyi]
-                          "new_sensor_value" (sensory-data @world @observer)})
-            response (<! port)
-            log-entry {:sdr (into (sorted-set) (response "sp_output"))
-                       :sensor-value (response "sensor_value")}]
-        (put! (om/get-shared owner :sdr-channel) log-entry))))
-
-(defn handle-saccader-panning [{:keys [world observer]} owner]
-  (chkcurs observer)
-  (let [bitmap (chkcurs (:bitmap world))]
-    (go-loop []
-      (let [downevt (<! (om/get-state owner :mousedown))]
-        (when (= (.-button downevt) 0)
-          (om/set-state! owner :grabbed true)
-          (let [[kmousemove moves] (listen js/window "mousemove")
-                [kmouseup ups] (listen js/window "mouseup")]
-            (while (not= ups
-                         (let [[evt port] (alts! [moves ups])]
-                           (om/set-state! owner :dxp (- (.-clientX evt)
-                                                        (.-clientX downevt)))
-                           (om/set-state! owner :dyp (- (.-clientY evt)
-                                                        (.-clientY downevt)))
-                           port)))
-            (events/unlistenByKey kmousemove)
-            (events/unlistenByKey kmouseup)
-
-            ;; In obscure cases (e.g. javascript breakpoints)
-            ;; there are stale mousedowns sitting in the queue.
-            (while (let [[_ port] (alts! [(om/get-state owner :mousedown)]
-                                         :default :drained)]
-                     (not= :default port))))
-
-          (let [{:keys [dxp dyp]} (om/get-state owner)]
-            (when (not (nil? dxp))
-              (let [dxi (-> dxp
-                            abs
-                            (/ (cell-width @world owner))
-                            floor
-                            (cond-> (neg? dxp) (* -1)))
-                    dyi (-> dyp
-                            abs
-                            (/ (cell-height @world owner))
-                            floor
-                            (cond-> (neg? dyp) (* -1)))
-                    xi (+ (@observer :xi) dxi)
-                    yi (+ (@observer :yi) dyi)]
-                (when (and (<= 0 xi)
-                           (<= (+ xi (@observer :width))
-                               (bitmap-width @bitmap))
-                           (<= 0 yi)
-                           (<= (+ yi (@observer :height))
-                               (bitmap-height @bitmap)))
-                  (om/transact! observer :xi #(+ % dxi))
-                  (om/transact! observer :yi #(+ % dyi))
-                  (add-action-and-result dxi dyi world observer owner)))
-              (om/set-state! owner :dxp nil)
-              (om/set-state! owner :dyp nil)))
-          (om/set-state! owner :grabbed false)))
-      (recur))))
-
 (def lens-component
   (instrument
-   (fn lens-component [{:keys [world observer]} owner]
-     (chkcurs world)
-     (chkcurs observer)
+   (fn lens-component [{:keys [bitmap lens view-config]} owner]
      (reify
        om/IInitState
        (init-state [_]
@@ -153,26 +161,32 @@
 
        om/IWillMount
        (will-mount [_]
-         (handle-saccader-panning {:world world :observer observer} owner)
-         (when (nil? (:server-token observer))
+         (handle-panning owner
+                         (fn []
+                           (commit-change @bitmap
+                                          (:wp @view-config)
+                                          (:hp @view-config)
+                                          lens
+                                          owner)))
+         (when (nil? (:server-token lens))
            (go
              (let [token (<! (do-xhr "/set-initial-sensor-value"
-                                     (sensory-data @world @observer)))]
-               (om/update! observer :server-token token)
+                                     (bits-under-lens @bitmap @lens)))]
+               (om/update! lens :server-token token)
                (println "Server assigned us token" token)))))
 
        om/IDidMount
        (did-mount [_]
-         (paint-saccader {:world world :observer observer} owner))
+         (paint bitmap (:wp view-config) (:hp view-config) lens owner))
 
        om/IDidUpdate
        (did-update [_ prev-props prev-state]
-         (paint-saccader {:world world :observer observer} owner))
+         (paint bitmap (:wp view-config) (:hp view-config) lens owner))
 
        om/IRenderState
        (render-state [_ {:keys [style grabbed mousedown]}]
-         (dom/canvas #js {:ref saccader-canvas-ref
-                          :width (:width-px world) :height (:height-px world)
+         (dom/canvas #js {:ref lens-ref
+                          :width (:wp view-config) :height (:hp view-config)
                           :className (if grabbed "grabbed" "grab")
                           :onMouseDown (fn [e] (.persist e) (put! mousedown e))
                           :style (clj->js style)}))))))
