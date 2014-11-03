@@ -20,15 +20,17 @@
             [0 0 0 0 0 0 0 0 0]
             [0 0 0 0 0 0 0 0 0]
             [0 0 0 0 0 0 0 0 0]]
-    :world-view {:wp 500 :hp 500}
+
     :lens {:xi 3 :yi 3 :wi 3 :hi 3
            :server-token nil}
+
+    :view {:wp 500 :hp 500}
+
     :sdr-journal {}}))
 
 (defonce sdr-channel (chan))
 
 (defn render []
-  (println app-state)
   (om/root conductor-component app-state
            {:target (.getElementById js/document "app")
             :shared {:sdr-channel sdr-channel}})

@@ -7,15 +7,15 @@
 
 (def bitmap-ref "bitmap")
 
-(defn paint [bitmap {:keys [wp hp]} owner]
+(defn paint [bitmap view owner]
   (let [ctx (.getContext (om/get-node owner bitmap-ref) "2d")
-        {:keys [wi hi wpcell hpcell]} (bitmap/onto-px bitmap wp hp)]
+        {:keys [wpcell hpcell] :as view+} (bitmap/onto-px bitmap view)]
     (canvas/clear ctx)
     (set! (.-fillStyle ctx) "black")
     (set! (.-strokeStyle ctx) "#2E7DD1")
     (set! (.-lineWidth ctx) 1)
-    (doseq [xi (range wi)
-            yi (range hi)
+    (doseq [xi (range (:wi view+))
+            yi (range (:hi view+))
             :let [xp (* xi wpcell)
                   yp (* yi hpcell)]]
       ;; Paint the dot, if applicable.
@@ -26,18 +26,17 @@
 
 (def bitmap-component
   (instrument
-   (fn bitmap-component [{:keys [bitmap view-config]} owner]
+   (fn bitmap-component [{:keys [bitmap view]} owner]
      (reify
        om/IDidMount
        (did-mount [_]
-         (paint bitmap view-config owner))
+         (paint bitmap view owner))
 
        om/IDidUpdate
        (did-update [_ _ _]
-         (paint bitmap view-config owner))
+         (paint bitmap view owner))
 
        om/IRenderState
        (render-state [_ {:keys [style]}]
-         (dom/canvas #js {:ref bitmap-ref :width (:wp view-config)
-                          :height (:hp view-config)
+         (dom/canvas #js {:ref bitmap-ref :width (:wp view) :height (:hp view)
                           :style (clj->js style)}))))))

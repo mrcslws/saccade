@@ -10,7 +10,7 @@
 (defn log-entry [[sensor-value sdr-log]]
   (apply dom/div nil
          (om/build bitmap-component {:bitmap sensor-value
-                                      :view-config {:wp 100 :hp 100}})
+                                      :view {:wp 100 :hp 100}})
 
          (map (fn [{:keys [sdr count]}]
                 (dom/div nil

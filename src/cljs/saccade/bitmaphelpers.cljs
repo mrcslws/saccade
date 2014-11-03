@@ -6,9 +6,8 @@
 (defn height [bitmap]
   (count (first bitmap)))
 
-(defn onto-px [bitmap width-px height-px]
-  (let [wi (width bitmap)
+(defn onto-px [bitmap view]
+  (let [{:keys [wp hp]} view
+        wi (width bitmap)
         hi (height bitmap)]
-    {:wi wi :hi hi
-     :wpcell (/ width-px wi)
-     :hpcell (/ height-px hi)}))
+    (assoc view :wi wi :hi hi :wpcell (/ wp wi) :hpcell (/ hp hi))))
