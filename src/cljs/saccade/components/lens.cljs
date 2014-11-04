@@ -2,13 +2,13 @@
   (:require [om.core :as om :include-macros true]
             [om.dom :as dom :include-macros true]
             [cognitect.transit :as transit]
-            [cljs.core.async :refer [<! put! alts! chan]]
+            [cljs.core.async :refer [<! put! alts! chan mult tap close!]]
             [goog.net.XhrIo :as XhrIo]
             [saccade.drag :as drag]
             [saccade.canvashelpers :as canvas]
             [saccade.bitmaphelpers :as bitmap]
             [saccade.components.helpers :refer [instrument]])
-  (:require-macros [cljs.core.async.macros :refer [go go-loop]]))
+  (:require-macros [cljs.core.async.macros :refer [go go-loop alt!]]))
 
 ;; ############################################################################
 ;; Math help
@@ -74,24 +74,33 @@
     (vec (for [xi (range xi (+ xi wi))]
            (subvec (nth bitmap xi) yi (+ yi hi))))))
 
-(defn lens-server-conversation [bitmap lens moves sdrs]
+(defn lens-server-conversation [bitmap lens moves sdrs donemult]
   (go
-    (let [token (<! (do-xhr "/set-initial-sensor-value"
-                            (bits-under-lens @bitmap @lens)))]
-      (println "Server assigned us token" token)
-      (while true
-        (let [[dxi dyi] (<! moves)
-              xi (+ (:xi @lens) dxi)
-              yi (+ (:yi @lens) dyi)]
-          (when (in-bounds? @lens @bitmap)
-            (om/transact! lens #(assoc % :xi xi :yi yi))
-            (let [sensed (bits-under-lens @bitmap @lens)
-                  response (<! (do-xhr "/add-action-and-result"
-                                       {"context_id" token
-                                        "motor_value" [dxi dyi]
-                                        "new_sensor_value" sensed}))]
-              (put! sdrs {:sdr (into (sorted-set) (response "sp_output"))
-                          :sensor-value (response "sensor_value")}))))))))
+    (when (nil? (:server-token @lens))
+      (om/update! lens :server-token
+                    (<! (do-xhr "/set-initial-sensor-value"
+                              (bits-under-lens @bitmap @lens)))))
+    (let [done (chan)]
+      (tap donemult done)
+      (go-loop []
+        (alt!
+          moves
+          ([[dxi dyi]]
+             (let [xi (+ (:xi @lens) dxi)
+                   yi (+ (:yi @lens) dyi)]
+               (when (in-bounds? @lens @bitmap)
+                 (om/transact! lens #(assoc % :xi xi :yi yi))
+                 (let [sensed (bits-under-lens @bitmap @lens)
+                       response (<! (do-xhr "/add-action-and-result"
+                                            {"context_id" (:server-token @lens)
+                                             "motor_value" [dxi dyi]
+                                             "new_sensor_value" sensed}))]
+                   (put! sdrs {:sdr (into (sorted-set) (response "sp_output"))
+                               :sensor-value (response "sensor_value")})))
+               (recur)))
+
+          done
+          :goodbye)))))
 
 
 ;; ############################################################################
@@ -117,10 +126,18 @@
         (set! (.-strokeStyle ctx) "rgba(0,0,255,0.25)")
         (.strokeRect ctx (+ xp snappydxp) (+ yp snappydyp) wp hp)))))
 
-(defn monitor [chn handler]
-  (go-loop []
-    (handler (<! chn))
-    (recur)))
+(defn monitor [chn donemult handler]
+  (let [done (chan)]
+    (tap donemult done)
+    (go-loop []
+      (alt!
+        chn
+        ([v]
+           (handler v)
+           (recur))
+
+        done
+        :goodbye))))
 
 (def lens-component
   (instrument
@@ -128,26 +145,29 @@
      (reify
        om/IInitState
        (init-state [_]
-         {:grabbed false
-          :mousedown (chan)
-          :dxp nil
-          :dyp nil})
+         (let [to-mult (chan)]
+          {:grabbed false
+           :mousedown (chan)
+           :teardown-in to-mult
+           :teardown (mult to-mult)
+           :dxp nil
+           :dyp nil}))
 
        om/IWillMount
        (will-mount [_]
          (let [started (chan)
                progress (chan)
                finished (chan)
-               commits (chan)]
-           (drag/watch (om/get-state owner :mousedown)
-                       started progress finished)
+               commits (chan)
+               {:keys [mousedown teardown]} (om/get-state owner)]
+           (drag/watch mousedown started progress finished)
 
-           (monitor started
+           (monitor started teardown
                     #(om/set-state! owner :grabbed true))
-           (monitor progress
+           (monitor progress teardown
                     (fn [[dxp dyp]]
                       (om/update-state! owner #(assoc % :dxp dxp :dyp dyp))))
-           (monitor finished
+           (monitor finished teardown
                     (fn [[dxp dyp]]
                       (let [view+ (bitmap/onto-px @bitmap @view)
                             [dxi dyi] (dp->di dxp dyp view+)]
@@ -158,7 +178,14 @@
                         (put! commits [dxi dyi]))))
 
            (lens-server-conversation bitmap lens commits
-                                     (om/get-shared owner :sdr-channel))))
+                                     (om/get-shared owner :sdr-channel)
+                                     teardown)))
+
+       om/IWillUnmount
+       (will-unmount [_]
+         (let [{:keys [teardown-in mousedown]} (om/get-state owner)]
+           (put! teardown-in :destroy-everything)
+           (close! mousedown)))
 
        om/IDidMount
        (did-mount [_]

@@ -6,6 +6,7 @@
     v
     (throw (js/Error. (str v " is not a cursor!")))))
 
+
 (def log? true)
 (defn instrument [actual-view]
   (fn instrumented-view [state owner]
@@ -30,6 +31,10 @@
         (specify! faker om/IWillMount (will-mount [_]
                                         (log "will-mount")
                                         (om/will-mount actual))))
+      (when (satisfies? om/IWillUnmount actual)
+        (specify! faker om/IWillUnmount (will-unmount [_]
+                                        (log "will-unmount")
+                                        (om/will-unmount actual))))
       (when (satisfies? om/IDidMount actual)
         (specify! faker om/IDidMount (did-mount [_]
                                        (log "did-mount")
