@@ -1,6 +1,7 @@
 (ns saccade.components.lens
   (:require [om.core :as om :include-macros true]
             [om.dom :as dom :include-macros true]
+            [om-tools.core :refer-macros [defcomponent]]
             [cognitect.transit :as transit]
             [cljs.core.async :refer [<! put! alts! chan mult tap close!]]
             [goog.net.XhrIo :as XhrIo]
@@ -138,64 +139,63 @@
         done
         :goodbye))))
 
-(defn lens-component [{:keys [bitmap lens view]} owner]
-  (reify
-    om/IInitState
-    (init-state [_]
-      (let [to-mult (chan)]
-        {:grabbed false
-         :mousedown (chan)
-         :teardown-in to-mult
-         :teardown (mult to-mult)
-         :dxp nil
-         :dyp nil}))
+(defcomponent lens-component [{:keys [bitmap lens view]} owner]
+  (init-state
+   [_]
+   (let [to-mult (chan)]
+     {:grabbed false
+      :mousedown (chan)
+      :teardown-in to-mult
+      :teardown (mult to-mult)
+      :dxp nil
+      :dyp nil}))
 
-    om/IWillMount
-    (will-mount [_]
-      (let [started (chan)
-            progress (chan)
-            finished (chan)
-            commits (chan)
-            {:keys [mousedown teardown]} (om/get-state owner)]
-        (drag/watch mousedown started progress finished)
+  (will-mount
+   [_]
+   (let [started (chan)
+         progress (chan)
+         finished (chan)
+         commits (chan)
+         {:keys [mousedown teardown]} (om/get-state owner)]
+     (drag/watch mousedown started progress finished)
 
-        (monitor started teardown
-                 #(om/set-state! owner :grabbed true))
-        (monitor progress teardown
-                 (fn [[dxp dyp]]
-                   (om/update-state! owner #(assoc % :dxp dxp :dyp dyp))))
-        (monitor finished teardown
-                 (fn [[dxp dyp]]
-                   (let [view+ (bitmap/onto-px @bitmap @view)
-                         [dxi dyi] (dp->di dxp dyp view+)]
-                     (om/update-state! owner #(assoc %
-                                                :dxp nil :dyp nil
-                                                :grabbed false))
+     (monitor started teardown
+              #(om/set-state! owner :grabbed true))
+     (monitor progress teardown
+              (fn [[dxp dyp]]
+                (om/update-state! owner #(assoc % :dxp dxp :dyp dyp))))
+     (monitor finished teardown
+              (fn [[dxp dyp]]
+                (let [view+ (bitmap/onto-px @bitmap @view)
+                      [dxi dyi] (dp->di dxp dyp view+)]
+                  (om/update-state! owner #(assoc %
+                                             :dxp nil :dyp nil
+                                             :grabbed false))
 
-                     (put! commits [dxi dyi]))))
+                  (put! commits [dxi dyi]))))
 
-        (lens-server-conversation bitmap lens commits
-                                  (om/get-shared owner :sdr-channel)
-                                  teardown)))
+     (lens-server-conversation bitmap lens commits
+                               (om/get-shared owner :sdr-channel)
+                               teardown)))
 
-    om/IWillUnmount
-    (will-unmount [_]
-      (let [{:keys [teardown-in mousedown]} (om/get-state owner)]
-        (put! teardown-in :destroy-everything)
-        (close! mousedown)))
+  (will-unmount
+   [_]
+   (let [{:keys [teardown-in mousedown]} (om/get-state owner)]
+     (put! teardown-in :destroy-everything)
+     (close! mousedown)))
 
-    om/IDidMount
-    (did-mount [_]
-      (paint bitmap lens view owner))
+  (did-mount
+   [_]
+   (paint bitmap lens view owner))
 
-    om/IDidUpdate
-    (did-update [_ prev-props prev-state]
-      (paint bitmap lens view owner))
+  (did-update
+   [_ prev-props prev-state]
+   (paint bitmap lens view owner))
 
-    om/IRenderState
-    (render-state [_ {:keys [style grabbed mousedown]}]
-      (dom/canvas #js {:ref lens-ref
-                       :width (:wp view) :height (:hp view)
-                       :className (if grabbed "grabbed" "grab")
-                       :onMouseDown (fn [e] (.persist e) (put! mousedown e))
-                       :style (clj->js style)}))))
+  (render-state
+   [_ {:keys [style grabbed mousedown]}]
+   (dom/canvas #js {:ref lens-ref
+                    :width (:wp view) :height (:hp view)
+                    :className (if grabbed "grabbed" "grab")
+                    :onMouseDown (fn [e] (.persist e) (put! mousedown e))
+                    :style (clj->js style)})))

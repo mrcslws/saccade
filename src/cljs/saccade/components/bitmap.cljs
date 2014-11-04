@@ -1,6 +1,7 @@
 (ns saccade.components.bitmap
   (:require [om.core :as om :include-macros true]
             [om.dom :as dom :include-macros true]
+            [om-tools.core :refer-macros [defcomponent]]
             [saccade.canvashelpers :as canvas]
             [saccade.bitmaphelpers :as bitmap]))
 
@@ -23,17 +24,16 @@
       ;; Paint the grid.
       (.strokeRect ctx xp yp wpcell hpcell))))
 
-(defn bitmap-component [{:keys [bitmap view]} owner]
-  (reify
-    om/IDidMount
-    (did-mount [_]
-      (paint bitmap view owner))
+(defcomponent bitmap-component [{:keys [bitmap view]} owner]
+  (did-mount
+   [_]
+   (paint bitmap view owner))
 
-    om/IDidUpdate
-    (did-update [_ _ _]
-      (paint bitmap view owner))
+  (did-update
+   [_ _ _]
+   (paint bitmap view owner))
 
-    om/IRenderState
-    (render-state [_ {:keys [style]}]
-      (dom/canvas #js {:ref bitmap-ref :width (:wp view) :height (:hp view)
-                       :style (clj->js style)}))))
+  (render-state
+   [_ {:keys [style]}]
+   (dom/canvas #js {:ref bitmap-ref :width (:wp view) :height (:hp view)
+                    :style (clj->js style)})))
