@@ -6,6 +6,7 @@
             [cljs.core.async :refer [<! put! alts! chan mult tap close!]]
             [goog.net.XhrIo :as XhrIo]
             [saccade.drag :as drag]
+            [saccade.components.helpers :refer [log-lifecycle-mixin]]
             [saccade.canvashelpers :as canvas]
             [saccade.bitmaphelpers :as bitmap])
   (:require-macros [cljs.core.async.macros :refer [go go-loop alt!]]))
@@ -140,6 +141,7 @@
         :goodbye))))
 
 (defcomponent lens-component [{:keys [bitmap lens view]} owner]
+  (:mixins log-lifecycle-mixin)
   (init-state
    [_]
    (let [to-mult (chan)]

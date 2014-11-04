@@ -4,13 +4,14 @@
             [om-tools.core :refer-macros [defcomponent]]
             [clojure.string :as string]
             [cljs.core.async :refer [<! put! mult tap chan]]
-            [saccade.components.bitmap :refer [bitmap-component]])
+            [saccade.components.helpers :refer [log-lifecycle-mixin]]
+            [saccade.components.bitmap :refer [->bitmap-component]])
   (:require-macros [cljs.core.async.macros :refer [go-loop alt!]]))
 
 (defn log-entry [[sensor-value sdr-log]]
   (apply dom/div nil
-         (om/build bitmap-component {:bitmap sensor-value
-                                     :view {:wp 100 :hp 100}})
+         (->bitmap-component {:bitmap sensor-value
+                              :view {:wp 100 :hp 100}})
 
          (map (fn [{:keys [sdr count]}]
                 (dom/div nil
@@ -23,6 +24,7 @@
 
 (def show-logs? true)
 (defcomponent sdrjournal-component [{:keys [sdr-journal]} owner]
+  (:mixins log-lifecycle-mixin)
   (init-state
    [_]
    (let [to-mult (chan)]

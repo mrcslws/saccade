@@ -2,6 +2,7 @@
   (:require [om.core :as om :include-macros true]
             [om.dom :as dom :include-macros true]
             [om-tools.core :refer-macros [defcomponent]]
+            [saccade.components.helpers :refer [log-lifecycle-mixin]]
             [saccade.canvashelpers :as canvas]
             [saccade.bitmaphelpers :as bitmap]))
 
@@ -25,6 +26,7 @@
       (.strokeRect ctx xp yp wpcell hpcell))))
 
 (defcomponent bitmap-component [{:keys [bitmap view]} owner]
+  (:mixins log-lifecycle-mixin)
   (did-mount
    [_]
    (paint bitmap view owner))
