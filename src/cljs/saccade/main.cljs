@@ -2,8 +2,7 @@
   (:require [om.core :as om :include-macros true]
             [om.dom :as dom :include-macros true]
             [cljs.core.async :refer [chan]]
-            [saccade.components.conductor :refer [conductor-component]]
-            [saccade.components.sdrjournal :refer [sdrjournal-component]])
+            [saccade.components.app :refer [app-component]])
   (:require-macros [saccade.macros :refer [set-prefixed!]]
                    [cljs.core.async.macros :refer [go go-loop]]))
 
@@ -28,12 +27,7 @@
 
     :sdr-journal {}}))
 
-(defonce sdr-channel (chan))
-
 (defn render []
-  (om/root conductor-component app-state
+  (om/root app-component app-state
            {:target (.getElementById js/document "app")
-            :shared {:sdr-channel sdr-channel}})
-  (om/root sdrjournal-component app-state
-           {:target (.getElementById js/document "log")
-            :shared {:sdr-channel sdr-channel}}))
+            :shared {:sdr-channel (chan)}}))
