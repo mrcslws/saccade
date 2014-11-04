@@ -10,7 +10,7 @@
 (defn log-entry [[sensor-value sdr-log]]
   (apply dom/div nil
          (om/build bitmap-component {:bitmap sensor-value
-                                      :view {:wp 100 :hp 100}})
+                                     :view {:wp 100 :hp 100}})
 
          (map (fn [{:keys [sdr count]}]
                 (dom/div nil
@@ -46,9 +46,7 @@
                           (fn [sdr-log]
                             (if (not= sdr (:sdr (last sdr-log)))
                               (vec (conj sdr-log {:sdr sdr :count 1}))
-                              (update-in sdr-log [(dec (count sdr-log))
-                                                  :count]
-                                         inc))))
+                              (update-in sdr-log [(dec (count sdr-log)) :count] inc))))
             (recur))
 
          done
