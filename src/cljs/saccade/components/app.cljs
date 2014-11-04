@@ -11,5 +11,5 @@
   (render
    [_]
    (dom/div nil
-            (->conductor-component app)
-            (->sdrjournal-component app))))
+            (->conductor-component (select-keys app [:world :lens :view]))
+            (->sdrjournal-component (select-keys app [:sdr-journal])))))
