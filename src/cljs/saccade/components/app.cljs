@@ -7,7 +7,7 @@
             [saccade.components.sdrjournal :refer [->sdrjournal-component]]))
 
 (defcomponent app-component [app owner]
-  (:mixins log-lifecycle mixin)
+  (:mixins log-lifecycle-mixin)
   (render
    [_]
    (dom/div nil
