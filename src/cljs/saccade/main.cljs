@@ -27,7 +27,7 @@
 
     :sdr-journal {}}))
 
-(defn render []
+(defn render-loop []
   (om/root app-component app-state
            {:target (.getElementById js/document "app")
             :shared {:sdr-channel (chan)}}))

@@ -9,8 +9,8 @@
 
 (figwheel/watch-and-reload
     :websocket-url "ws://localhost:3449/figwheel-ws"
-    :jsload-callback (fn [] (saccade.main/render)))
+    :jsload-callback (fn [] (saccade.main/render-loop)))
 
 (weasel/connect "ws://localhost:9001" :verbose true :print #{:repl :console})
 
-(saccade.main/render)
+(saccade.main/render-loop)
