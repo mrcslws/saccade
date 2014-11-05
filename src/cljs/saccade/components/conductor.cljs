@@ -2,12 +2,12 @@
   (:require [om.core :as om :include-macros true]
             [om.dom :as dom :include-macros true]
             [om-tools.core :refer-macros [defcomponent]]
-            [saccade.components.helpers :refer [log-lifecycle-mixin]]
+            [saccade.components.helpers :refer [log-lifecycle]]
             [saccade.components.bitmap :refer [->bitmap-component]]
             [saccade.components.lens :refer [->lens-component]]))
 
 (defcomponent conductor-component [app owner]
-  (:mixins log-lifecycle-mixin)
+  (:mixins log-lifecycle)
   (render
    [_]
    (let [{:keys [world lens view]} app

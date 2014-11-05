@@ -6,7 +6,7 @@
             [cljs.core.async :refer [<! put! alts! chan mult tap close!]]
             [goog.net.XhrIo :as XhrIo]
             [saccade.drag :as drag]
-            [saccade.components.helpers :refer [log-lifecycle-mixin]]
+            [saccade.components.helpers :refer [log-lifecycle]]
             [saccade.canvashelpers :as canvas]
             [saccade.bitmaphelpers :as bitmap])
   (:require-macros [cljs.core.async.macros :refer [go go-loop alt!]]))
@@ -87,10 +87,11 @@
         (alt!
           moves
           ([[dxi dyi]]
-             (let [xi (+ (:xi @lens) dxi)
-                   yi (+ (:yi @lens) dyi)]
-               (when (in-bounds? @lens @bitmap)
-                 (om/transact! lens #(assoc % :xi xi :yi yi))
+             (let [proposed (assoc @lens
+                              :xi (+ (:xi @lens) dxi)
+                              :yi (+ (:yi @lens) dyi))]
+               (when (in-bounds? proposed  @bitmap)
+                 (om/update! lens proposed)
                  (let [sensed (bits-under-lens @bitmap @lens)
                        response (<! (do-xhr "/add-action-and-result"
                                             {"context_id" (:server-token @lens)
@@ -141,7 +142,7 @@
         :goodbye))))
 
 (defcomponent lens-component [{:keys [bitmap lens view]} owner]
-  (:mixins log-lifecycle-mixin)
+  (:mixins log-lifecycle)
   (init-state
    [_]
    (let [to-mult (chan)]
@@ -199,5 +200,7 @@
    (dom/canvas #js {:ref lens-ref
                     :width (:wp view) :height (:hp view)
                     :className (if grabbed "grabbed" "grab")
-                    :onMouseDown (fn [e] (.persist e) (put! mousedown e))
+                    :onMouseDown (fn [e] (.persist e)
+                                   (.preventDefault e)
+                                   (put! mousedown e))
                     :style (clj->js style)})))

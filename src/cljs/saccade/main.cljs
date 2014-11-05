@@ -1,10 +1,7 @@
 (ns saccade.main
   (:require [om.core :as om :include-macros true]
-            [om.dom :as dom :include-macros true]
             [cljs.core.async :refer [chan]]
-            [saccade.components.app :refer [app-component]])
-  (:require-macros [saccade.macros :refer [set-prefixed!]]
-                   [cljs.core.async.macros :refer [go go-loop]]))
+            [saccade.components.app :refer [app-component]]))
 
 (enable-console-print!)
 

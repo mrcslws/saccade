@@ -2,12 +2,12 @@
   (:require [om.core :as om :include-macros true]
             [om.dom :as dom :include-macros true]
             [om-tools.core :refer-macros [defcomponent]]
-            [saccade.components.helpers :refer [log-lifecycle-mixin]]
+            [saccade.components.helpers :refer [log-lifecycle]]
             [saccade.components.conductor :refer [->conductor-component]]
             [saccade.components.sdrjournal :refer [->sdrjournal-component]]))
 
 (defcomponent app-component [app owner]
-  (:mixins log-lifecycle-mixin)
+  (:mixins log-lifecycle)
   (render
    [_]
    (dom/div nil

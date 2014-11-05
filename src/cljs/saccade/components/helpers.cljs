@@ -8,7 +8,7 @@
   (when (<= level log-level)
     (apply println (.getDisplayName owner) args)))
 
-(defmixin log-lifecycle-mixin
+(defmixin log-lifecycle
   (will-mount
    [owner]
    (log owner 3 "will-mount"))
