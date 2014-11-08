@@ -2,7 +2,7 @@
   (:require [om.core :as om :include-macros true]
             [om-tools.mixin :refer-macros [defmixin]]))
 
-(def log-level 2)
+(def log-level 0)
 
 (defn log [owner level & args]
   (when (<= level log-level)

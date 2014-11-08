@@ -8,8 +8,8 @@
 
 (defcomponent conductor-component [app owner]
   (:mixins log-lifecycle)
-  (render
-   [_]
+  (render-state
+   [_ {:keys [command-channel]}]
    (let [{:keys [world lens view]} app
          twolayer-style {:position "absolute" :left 0 :top 0}]
      (dom/div #js {:position "relative"
@@ -19,4 +19,5 @@
                {:init-state {:style (assoc twolayer-style :zIndex 0)}})
               (->lens-component
                {:bitmap world :view view :lens lens}
-               {:init-state {:style (assoc twolayer-style :zIndex 1)}})))))
+               {:init-state {:style (assoc twolayer-style :zIndex 1)
+                             :command-channel command-channel}})))))

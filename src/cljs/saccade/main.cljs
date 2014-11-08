@@ -17,8 +17,9 @@
             [0 0 0 0 0 0 0 0 0]
             [0 0 0 0 0 0 0 0 0]]
 
-    :lens {:xi 3 :yi 3 :wi 3 :hi 3
-           :server-token nil}
+    :lens {:xi 3 :yi 3 :wi 3 :hi 3}
+
+    :htm-bridge {}
 
     :view {:wp 500 :hp 500}
 
@@ -26,5 +27,4 @@
 
 (defn render-loop []
   (om/root app-component app-state
-           {:target (.getElementById js/document "app")
-            :shared {:sdr-channel (chan)}}))
+           {:target (.getElementById js/document "app")}))

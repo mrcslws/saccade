@@ -44,7 +44,7 @@
    [_]
    (let [teardown (om/get-state owner :teardown)
          done (chan)
-         sdrs (om/get-shared owner :sdr-channel)]
+         sdrs (om/get-state owner :sdr-channel)]
      (tap teardown done)
      (go-loop []
        (alt!

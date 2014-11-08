@@ -2,9 +2,7 @@
   (:require [om.core :as om :include-macros true]
             [om.dom :as dom :include-macros true]
             [om-tools.core :refer-macros [defcomponent]]
-            [cognitect.transit :as transit]
-            [cljs.core.async :refer [<! put! alts! chan mult tap close!]]
-            [goog.net.XhrIo :as XhrIo]
+            [cljs.core.async :refer [put! chan mult tap close!]]
             [saccade.drag :as drag]
             [saccade.components.helpers :refer [log-lifecycle]]
             [saccade.canvashelpers :as canvas]
@@ -54,55 +52,11 @@
 ;; ############################################################################
 ;; Exporting data from beneath the lens
 
-(defn do-xhr [command-path message]
-  (let [port (chan)
-        path (str "http://localhost:8000" command-path)
-        message (transit/write (transit/writer :json-verbose) message)]
-    (println "[Client -->" path "]" message)
-    (XhrIo/send path (fn [e]
-                       (let [response (.. e -target getResponseText)]
-                         (put! port
-                               (when-not (empty? (.trim response))
-                                 (println "[" path "--> Client]" response)
-                                 (transit/read (transit/reader :json)
-                                               response)))))
-                "POST" message)
-    port))
-
 (defn bits-under-lens [bitmap lens]
   (let [{:keys [xi yi wi hi]} lens
         bitmap (if (om/cursor? bitmap) (om/value bitmap) bitmap)]
     (vec (for [xi (range xi (+ xi wi))]
            (subvec (nth bitmap xi) yi (+ yi hi))))))
-
-(defn lens-server-conversation [bitmap lens moves sdrs donemult]
-  (go
-    (when (nil? (:server-token @lens))
-      (om/update! lens :server-token
-                    (<! (do-xhr "/set-initial-sensor-value"
-                              (bits-under-lens @bitmap @lens)))))
-    (let [done (chan)]
-      (tap donemult done)
-      (go-loop []
-        (alt!
-          moves
-          ([[dxi dyi]]
-             (let [proposed (assoc @lens
-                              :xi (+ (:xi @lens) dxi)
-                              :yi (+ (:yi @lens) dyi))]
-               (when (in-bounds? proposed  @bitmap)
-                 (om/update! lens proposed)
-                 (let [sensed (bits-under-lens @bitmap @lens)
-                       response (<! (do-xhr "/add-action-and-result"
-                                            {"context_id" (:server-token @lens)
-                                             "motor_value" [dxi dyi]
-                                             "new_sensor_value" sensed}))]
-                   (put! sdrs {:sdr (into (sorted-set) (response "sp_output"))
-                               :sensor-value (response "sensor_value")})))
-               (recur)))
-
-          done
-          :goodbye)))))
 
 
 ;; ############################################################################
@@ -155,31 +109,35 @@
 
   (will-mount
    [_]
-   (let [started (chan)
-         progress (chan)
-         finished (chan)
-         commits (chan)
-         {:keys [mousedown teardown]} (om/get-state owner)]
-     (drag/watch mousedown started progress finished)
+   (let [commands (om/get-state owner :command-channel)]
+     (put! commands [:initialize [lens (om/value lens)] (bits-under-lens bitmap lens)])
 
-     (monitor started teardown
-              #(om/set-state! owner :grabbed true))
-     (monitor progress teardown
-              (fn [[dxp dyp]]
-                (om/update-state! owner #(assoc % :dxp dxp :dyp dyp))))
-     (monitor finished teardown
-              (fn [[dxp dyp]]
-                (let [view+ (bitmap/onto-px @bitmap @view)
-                      [dxi dyi] (dp->di dxp dyp view+)]
+     (let [started (chan)
+           progress (chan)
+           finished (chan)
+           {:keys [mousedown teardown]} (om/get-state owner)]
+       (drag/watch mousedown started progress finished)
+
+       (monitor started teardown
+                #(om/set-state! owner :grabbed true))
+       (monitor progress teardown
+                (fn [[dxp dyp]]
+                  (om/update-state! owner #(assoc % :dxp dxp :dyp dyp))))
+       (monitor finished teardown
+                (fn [[dxp dyp]]
                   (om/update-state! owner #(assoc %
                                              :dxp nil :dyp nil
                                              :grabbed false))
-
-                  (put! commits [dxi dyi]))))
-
-     (lens-server-conversation bitmap lens commits
-                               (om/get-shared owner :sdr-channel)
-                               teardown)))
+                  (let [view+ (bitmap/onto-px @bitmap @view)
+                        [dxi dyi] (dp->di dxp dyp view+)
+                        proposed (assoc @lens
+                                   :xi (+ (:xi @lens) dxi)
+                                   :yi (+ (:yi @lens) dyi))]
+                    (when (in-bounds? proposed @bitmap)
+                      (let [sensed (bits-under-lens @bitmap proposed)
+                            motor-value [dxi dyi]]
+                        (put! commands [:saccade [lens @lens] motor-value sensed])
+                        (om/update! lens proposed)))))))))
 
   (will-unmount
    [_]
