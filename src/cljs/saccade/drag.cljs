@@ -1,8 +1,9 @@
 (ns saccade.drag
   (:require
-   [cljs.core.async :refer [<! put! chan]]
+   [cljs.core.async :refer [<! put! chan alts! take!]]
    [goog.events :as events])
-  (:require-macros [cljs.core.async.macros :refer [go-loop alt!]]))
+  (:require-macros [saccade.macros :refer [drain!]]
+                   [cljs.core.async.macros :refer [go-loop alt!]]))
 
 (defn listen [el type]
   (let [port (chan)
@@ -34,8 +35,5 @@
 
         ;; In obscure cases (e.g. javascript breakpoints)
         ;; there are stale mousedowns sitting in the queue.
-        (loop []
-          (alt!
-            mousedown ([_] (recur))
-            :default :channels-are-drained)))
+        (drain! mousedown))
       (recur))))

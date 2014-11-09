@@ -3,7 +3,7 @@
             [cognitect.transit :as transit]
             [cljs.core.async :refer [<! put! chan mult tap alts!]]
             [goog.net.XhrIo :as XhrIo])
-  (:require-macros [saccade.macros :refer [go-monitor]]
+  (:require-macros [saccade.macros :refer [go-monitor drain!]]
                    [cljs.core.async.macros :refer [go go-loop alt!]]))
 
 
@@ -70,8 +70,5 @@
                   ;; Failed.
                   (when-let [[cursor value] checkpoint]
                     (om/update! cursor value))
-                  (loop []
-                    (alt!
-                      commands ([_] (recur))
-                      :default :channels-are-drained))))
+                  (drain! commands)))
     [commands sdrs]))
