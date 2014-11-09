@@ -16,15 +16,23 @@
      {:teardown-in to-mult
       :teardown (mult to-mult)}))
 
+  (will-mount
+   [_]
+   (let [[commands sdrs] (cloud-htm-bridge (:htm-bridge app)
+                                           (om/get-state owner :teardown))]
+     (om/update-state! owner #(assoc %
+                                :command-channel commands
+                                :sdr-channel sdrs))))
+
   (will-unmount
    [_]
    (put! (om/get-state owner :teardown-in) :destroy-everything))
 
   (render-state
-   [_ {:keys [teardown]}]
-   (let [[commands sdrs] (cloud-htm-bridge (:htm-bridge app) teardown)]
-     (dom/div nil
-              (->conductor-component (select-keys app [:world :lens :view])
-                                     {:init-state {:command-channel commands}})
-              (->sdrjournal-component (select-keys app [:sdr-journal])
-                                      {:init-state {:sdr-channel sdrs}})))))
+   [_ {:keys [command-channel sdr-channel]}]
+   (dom/div nil
+            (->conductor-component (select-keys app [:world :lens :view])
+                                   {:init-state {:command-channel
+                                                 command-channel}})
+            (->sdrjournal-component (select-keys app [:sdr-journal])
+                                    {:init-state {:sdr-channel sdr-channel}}))))
