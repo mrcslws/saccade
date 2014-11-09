@@ -7,7 +7,8 @@
             [saccade.components.helpers :refer [log-lifecycle]]
             [saccade.canvashelpers :as canvas]
             [saccade.bitmaphelpers :as bitmap])
-  (:require-macros [cljs.core.async.macros :refer [go go-loop alt!]]))
+  (:require-macros [saccade.macros :refer [go-monitor]]
+                   [cljs.core.async.macros :refer [go go-loop alt!]]))
 
 ;; ############################################################################
 ;; Math help
@@ -82,19 +83,6 @@
         (set! (.-strokeStyle ctx) "rgba(0,0,255,0.25)")
         (.strokeRect ctx (+ xp snappydxp) (+ yp snappydyp) wp hp)))))
 
-(defn monitor [chn donemult handler]
-  (let [done (chan)]
-    (tap donemult done)
-    (go-loop []
-      (alt!
-        chn
-        ([v]
-           (handler v)
-           (recur))
-
-        done
-        :goodbye))))
-
 (defcomponent lens-component [{:keys [bitmap lens view]} owner]
   (:mixins log-lifecycle)
   (init-state
@@ -118,26 +106,29 @@
            {:keys [mousedown teardown]} (om/get-state owner)]
        (drag/watch mousedown started progress finished)
 
-       (monitor started teardown
-                #(om/set-state! owner :grabbed true))
-       (monitor progress teardown
-                (fn [[dxp dyp]]
-                  (om/update-state! owner #(assoc % :dxp dxp :dyp dyp))))
-       (monitor finished teardown
-                (fn [[dxp dyp]]
-                  (om/update-state! owner #(assoc %
-                                             :dxp nil :dyp nil
-                                             :grabbed false))
-                  (let [view+ (bitmap/onto-px @bitmap @view)
-                        [dxi dyi] (dp->di dxp dyp view+)
-                        proposed (assoc @lens
-                                   :xi (+ (:xi @lens) dxi)
-                                   :yi (+ (:yi @lens) dyi))]
-                    (when (in-bounds? proposed @bitmap)
-                      (let [sensed (bits-under-lens @bitmap proposed)
-                            motor-value [dxi dyi]]
-                        (put! commands [:saccade [lens @lens] motor-value sensed])
-                        (om/update! lens proposed)))))))))
+       (go-monitor started teardown
+                   []
+                   (om/set-state! owner :grabbed true))
+
+       (go-monitor progress teardown
+                   [[dxp dyp]]
+                   (om/update-state! owner #(assoc % :dxp dxp :dyp dyp)))
+
+       (go-monitor finished teardown
+                   [[dxp dyp]]
+                   (om/update-state! owner #(assoc %
+                                              :dxp nil :dyp nil
+                                              :grabbed false))
+                   (let [view+ (bitmap/onto-px @bitmap @view)
+                         [dxi dyi] (dp->di dxp dyp view+)
+                         proposed (assoc @lens
+                                    :xi (+ (:xi @lens) dxi)
+                                    :yi (+ (:yi @lens) dyi))]
+                     (when (in-bounds? proposed @bitmap)
+                       (let [sensed (bits-under-lens @bitmap proposed)
+                             motor-value [dxi dyi]]
+                         (put! commands [:saccade [lens @lens] motor-value sensed])
+                         (om/update! lens proposed))))))))
 
   (will-unmount
    [_]
