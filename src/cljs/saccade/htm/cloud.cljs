@@ -13,12 +13,19 @@
         message (transit/write (transit/writer :json-verbose) message)]
     (println "[Client -->" path "]" message)
     (XhrIo/send path (fn [e]
-                       (let [response (.. e -target getResponseText)]
+                       (let [status (.. e -target getStatus)
+                             response (.. e -target getResponseText)]
+                         (println "[" path "--> Client]")
                          (put! port
-                               (when-not (empty? (.trim response))
-                                 (println "[" path "--> Client]" response)
-                                 (transit/read (transit/reader :json)
-                                               response)))))
+                               (if (= status 200)
+                                 (do
+                                   (println response)
+                                   (transit/read (transit/reader :json)
+                                                 response))
+                                 (do
+                                   (js/console.error (str "XHR failed: "
+                                                          status))
+                                   :failure)))))
                 "POST" message)
     port))
 
@@ -26,33 +33,54 @@
   {:initialize (fn [htm-bridge _ current-sensor-value]
                  (let [result (chan)]
                    (go
-                     ;; Only reinitialize if we haven't initialized yet,
-                     ;; or if the lens is not where we think it should
-                     ;; be.
-                     (when (or (nil? (:server-token @htm-bridge))
-                               (not= current-sensor-value
-                                     (:sensor-value @htm-bridge)))
-                       (om/update! htm-bridge :server-token
-                                   (<!
-                                    (do-xhr "/set-initial-sensor-value"
-                                            current-sensor-value)))
-                       (om/update! htm-bridge :sensor-value
-                                   current-sensor-value))
-                     (put! result :success))
+                     (put! result
+                           (cond
+
+                            ;; Only reinitialize if we haven't initialized yet,
+                            ;; or if the lens is not where we think it should
+                            ;; be.
+                            (and (:server-token @htm-bridge)
+                                 (= current-sensor-value
+                                    (:sensor-value @htm-bridge)))
+                            :success
+
+                            (let [response (<! (do-xhr
+                                                 "/set-initial-sensor-value"
+                                                 current-sensor-value))]
+                              (when-not (= response :failure)
+                                (om/update! htm-bridge :server-token
+                                            response)
+                                (om/update! htm-bridge :sensor-value
+                                            current-sensor-value)
+                                true))
+                            :success
+
+                            :else
+                            :failure)))
                    result))
    :saccade (fn [htm-bridge {:keys [sdrs]} motor-value new-sensor-value]
               (let [result (chan)]
                 (go
-                  (let [response (<! (do-xhr
-                                      "/add-action-and-result"
-                                      {"context_id" (:server-token @htm-bridge)
-                                       "motor_value" motor-value
-                                       "new_sensor_value" new-sensor-value}))]
-                    (om/update! htm-bridge :sensor-value new-sensor-value)
-                    (put! sdrs
-                          {:sdr (into (sorted-set) (response "sp_output"))
-                           :sensor-value (response "sensor_value")})
-                    (put! result :success)))
+                  (put! result
+                        (cond
+                         (let [message {"context_id" (:server-token @htm-bridge)
+                                        "motor_value" motor-value
+                                        "new_sensor_value" new-sensor-value}
+                               response (<! (do-xhr
+                                             "/add-action-and-result"
+                                             message))]
+                           (when (not= response :failure)
+                             (om/update! htm-bridge :sensor-value
+                                         new-sensor-value)
+                             (put! sdrs
+                                   {:sdr (into (sorted-set)
+                                               (response "sp_output"))
+                                    :sensor-value (response "sensor_value")})
+                             true))
+                         :success
+
+                         :else
+                         :failure)))
                 result))})
 
 (defn cloud-htm-bridge [htm-bridge donemult]
