@@ -49,26 +49,18 @@
                        (om/update! htm-bridge :sensor-value
                                    current-sensor-value)
                        true))
-                   :success
-
-                   :else
-                   :failure)))
+                   :success)))
    :saccade (fn [htm-bridge {:keys [sdrs]} motor-value new-sensor-value]
               (go-result
-               (cond
-                (let [message {"context_id" (:server-token @htm-bridge)
-                               "motor_value" motor-value
-                               "new_sensor_value" new-sensor-value}
-                      response (<! (do-xhr "/add-action-and-result" message))]
-                  (when (not= response :failure)
-                    (om/update! htm-bridge :sensor-value new-sensor-value)
-                    (put! sdrs {:sdr (into (sorted-set) (response "sp_output"))
-                                :sensor-value (response "sensor_value")})
-                    true))
-                :success
-
-                :else
-                :failure)))})
+               (let [message {"context_id" (:server-token @htm-bridge)
+                              "motor_value" motor-value
+                              "new_sensor_value" new-sensor-value}
+                     response (<! (do-xhr "/add-action-and-result" message))]
+                 (when (not= response :failure)
+                   (om/update! htm-bridge :sensor-value new-sensor-value)
+                   (put! sdrs {:sdr (into (sorted-set) (response "sp_output"))
+                               :sensor-value (response "sensor_value")})
+                   :success))))})
 
 (defn cloud-htm-bridge [htm-bridge donemult]
   (let [commands (chan)

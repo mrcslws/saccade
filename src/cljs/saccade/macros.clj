@@ -16,7 +16,9 @@
 (defmacro go-result [& body]
   `(let [result# (cljs.core.async/chan)]
      (cljs.core.async.macros/go
-       (cljs.core.async/put! result# (do ~@body)))
+       (cljs.core.async/put! result# (if-let [r# (do ~@body)]
+                                       r#
+                                       :failure)))
      result#))
 
 ;; Implemented as a macro because alts!! isn't available in ClojureScript,
