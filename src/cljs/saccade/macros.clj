@@ -13,11 +13,17 @@
          done#
          :goodbye))))
 
+(defmacro go-result [& body]
+  `(let [result# (cljs.core.async/chan)]
+     (cljs.core.async.macros/go
+       (cljs.core.async/put! result# (do ~@body)))
+     result#))
+
 ;; Implemented as a macro because alts!! isn't available in ClojureScript,
 ;; so we're forced to use alt! in a (go ...) block, so we need a macro to
 ;; use the caller's (go ...) block.
 (defmacro drain! [chn]
   `(loop []
-    (cljs.core.async.macros/alt!
-      ~chn ([_] (recur))
-      :default :channels-are-drained)))
+     (cljs.core.async.macros/alt!
+       ~chn ([_] (recur))
+       :default :channels-are-drained)))
